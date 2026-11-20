@@ -211,7 +211,7 @@ func (e *Engine) RetryProvision(ctx context.Context, name string) (int64, string
 		return 0, "", errors.New("only a site that failed to create can be retried")
 	}
 	adminPW := ""
-	if s.Type == model.TypeWordPress {
+	if s.Type == model.TypeWordPress && (s.Import == nil || s.Import.Files == "") {
 		adminPW = Password(20)
 	}
 	id, err := e.StartJob(s.Name, "create", "Retry "+s.Domain, func(ctx context.Context, logf Logf) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -18,7 +19,13 @@ func (e *Engine) wp(ctx context.Context, s model.Site, stdin string, args ...str
 	dir := e.Paths().SiteDir(s.Name)
 	full := append([]string{"-u", s.User(), "--", config.V(e.Cfg.PHP.CLI, s.PHPVersion),
 		"-d", "memory_limit=512M", e.Cfg.WPCLI, "--path=" + filepath.Join(dir, "public", s.DocRoot)}, args...)
-	c := sys.Cmd{Name: "runuser", Args: full, Dir: filepath.Join(dir, "tmp"), Env: []string{
+	// Files WP-CLI writes must be readable by nginx; Berth's umask is 027.
+	runuser, err := exec.LookPath("runuser")
+	if err != nil {
+		runuser = "/usr/sbin/runuser"
+	}
+	full = append([]string{"-c", `umask 022; exec "$0" "$@"`, runuser}, full...)
+	c := sys.Cmd{Name: "/bin/sh", Args: full, Dir: filepath.Join(dir, "tmp"), Env: []string{
 		"HOME=" + filepath.Join(dir, "tmp"),
 		"PATH=/usr/local/bin:/usr/bin:/bin",
 		"WP_CLI_CACHE_DIR=" + filepath.Join(dir, "tmp", ".wp-cli-cache"),

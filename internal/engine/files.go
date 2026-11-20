@@ -67,6 +67,28 @@ func (e *Engine) chownNew(r *os.Root, s model.Site, rel string) {
 	if uid, gid := e.owner(s); uid >= 0 {
 		_ = r.Lchown(rel, uid, gid)
 	}
+	// Berth runs with umask 027; nginx (not the site user) must still be
+	// able to read static files.
+	if fi, err := r.Lstat(rel); err == nil {
+		if m := webMode(fi); m != fi.Mode().Perm() {
+			_ = r.Chmod(rel, m)
+		}
+	}
+}
+
+// webMode is the mode a file or folder inside public needs so nginx can
+// serve it: folders group/other-searchable, files group/other-readable.
+// Other sites still cannot reach it, because public itself is 0750 with
+// nginx's group.
+func webMode(fi fs.FileInfo) fs.FileMode {
+	m := fi.Mode().Perm()
+	switch {
+	case fi.IsDir():
+		return m | 0o055
+	case fi.Mode().IsRegular():
+		return m | 0o044
+	}
+	return m
 }
 
 // ListFiles lists a folder in the site.

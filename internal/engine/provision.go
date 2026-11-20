@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -96,6 +97,21 @@ func (e *Engine) ensureDirs(s model.Site) error {
 }
 
 // chownTree hands every file under root to uid:gid without following links.
+// webModes makes everything below public readable by nginx (see webMode).
+func webModes(public string) {
+	_ = filepath.WalkDir(public, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || p == public || d.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
+		if fi, err := d.Info(); err == nil {
+			if m := webMode(fi); m != fi.Mode().Perm() {
+				_ = os.Chmod(p, m)
+			}
+		}
+		return nil
+	})
+}
+
 func chownTree(root string, uid, gid int) error {
 	return filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -124,7 +140,23 @@ func (e *Engine) FixPermissions(ctx context.Context, s model.Site) error {
 			return err
 		}
 	}
+	webModes(filepath.Join(dir, "public"))
 	return os.Chown(filepath.Join(dir, "public"), uid, web)
+}
+
+// fixWebModes repairs sites whose files nginx cannot read: files Berth wrote
+// before it widened modes kept its umask (027) and showed up as 404s.
+func (e *Engine) fixWebModes(ctx context.Context) {
+	if e.Cfg.DryRun {
+		return
+	}
+	sites, err := e.Store.Sites(ctx)
+	if err != nil {
+		return
+	}
+	for _, s := range sites {
+		webModes(filepath.Join(e.Paths().SiteDir(s.Name), "public"))
+	}
 }
 
 // placeholder is the first page of a new PHP site.
