@@ -267,7 +267,7 @@ func (s *Server) startUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
-// Halyard (filled in by the integration) ---------------------------------------
+// Halyard ----------------------------------------------------------------------
 
 func (s *Server) halyardInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.Engine.HalyardInfo(r.Context()))
@@ -283,7 +283,7 @@ func (s *Server) halyardSync(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	site, err := s.Engine.LinkHalyard(r.Context(), site.Name, req)
+	site, err := s.Engine.LinkHalyard(r.Context(), site.Name, req, currentUser(r).Username)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -296,10 +296,27 @@ func (s *Server) halyardUnlink(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	site, err := s.Engine.UnlinkHalyard(r.Context(), site.Name)
+	site, err := s.Engine.UnlinkHalyard(r.Context(), site.Name, currentUser(r).Username)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
 	writeJSON(w, 200, site)
+}
+
+func (s *Server) halyardPool(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Address string `json:"address"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	p, err := s.Engine.CreateHalyardPool(r.Context(), req.Address)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	s.Store.AddEvent(r.Context(), "info", "halyard", "", currentUser(r).Username+" created the Halyard pool "+p.Name)
+	writeJSON(w, 200, p)
 }

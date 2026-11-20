@@ -93,6 +93,7 @@ func (s *Server) Handler() http.Handler {
 	a("GET /api/settings", s.getSettings)
 	a("PUT /api/settings", s.putSettings)
 	a("GET /api/halyard", s.halyardInfo)
+	a("POST /api/halyard/pool", s.halyardPool)
 	a("GET /api/system", s.system)
 	a("POST /api/system/php/{v}", s.installPHP)
 	a("POST /api/system/apply", s.reapply)

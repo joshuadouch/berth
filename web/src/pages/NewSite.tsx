@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { get, Job, nameFromDomain, post, Settings, Site, SiteType } from '../api';
+import { exposureLabel, get, HalyardInfo, Job, nameFromDomain, post, Settings, Site, SiteType, vipLabel } from '../api';
 import { Chips, Copyable, ErrorBox, Field, Icon, JobView, Loading, Toggle, useLoad } from '../ui';
 
 const types: { v: SiteType; icon: string; title: string; text: string }[] = [
@@ -30,6 +30,10 @@ export default function NewSite() {
   const [front, setFront] = useState(true);
   const [backups, setBackups] = useState(true);
   const [adv, setAdv] = useState(false);
+  const hal = useLoad(() => get<HalyardInfo>('/halyard'));
+  const [publish, setPublish] = useState(true);
+  const [vip, setVip] = useState('');
+  const [exposure, setExposure] = useState('');
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<Result | null>(null);
@@ -42,11 +46,14 @@ export default function NewSite() {
     setAdminUser((v) => v || s.wp_admin_user);
     setAdminEmail((v) => v || s.wp_admin_email);
     setLocale((v) => v || s.wp_locale);
+    setVip((v) => v || s.halyard.vip_id);
+    setExposure((v) => v || s.halyard.exposure || 'lan');
   }, [cfg.data]);
   useEffect(() => {
     if (!nameTouched) setName(domain ? nameFromDomain(domain) : '');
   }, [domain, nameTouched]);
 
+  const halyardReady = !!hal.data?.configured && !hal.data.error && hal.data.pool_ok;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setErr(null);
@@ -56,6 +63,7 @@ export default function NewSite() {
         type, domain: domain.trim(), name, aliases, redirect_aliases: redirect, php_version: php, https, enabled: true,
         doc_root: docRoot, front_controller: front, backups, sftp: { enabled: false, keys: [] },
       };
+      if (halyardReady && publish) body.halyard = { enabled: true, vip_id: vip, exposure };
       if (type === 'wordpress') body.wp = { title: title || domain.trim(), admin_user: adminUser, admin_email: adminEmail, locale };
       setRes(await post<Result>('/sites', body));
     } catch (e) { setErr(e); } finally { setBusy(false); }
@@ -78,7 +86,7 @@ export default function NewSite() {
               <Field label="Log in at"><Copyable value={(s.https ? 'https://' : 'http://') + s.domain + '/wp-admin/'} /></Field>
             </div></div>}
             {job && <div className="card"><div className="cb">
-              {job.status === 'ok' ? <p style={{ marginBottom: 12 }}>The site is ready. Point <b>{s.domain}</b> at Halyard if you have not already.</p> : <p style={{ marginBottom: 12 }}>Something went wrong. The log shows where; you can retry from the site page.</p>}
+              {job.status === 'ok' ? <p style={{ marginBottom: 12 }}>The site is ready. {res?.site.halyard?.enabled ? <>It is published on Halyard; the site page shows the host's status.</> : <>Point <b>{s.domain}</b> at Halyard if you have not already.</>}</p> : <p style={{ marginBottom: 12 }}>Something went wrong. The log shows where; you can retry from the site page.</p>}
               <button className="btn p" onClick={() => nav('/sites/' + s.id)}>Open site</button>
             </div></div>}
           </div>
@@ -124,6 +132,16 @@ export default function NewSite() {
               </select>
             </Field>
           </div>
+          {halyardReady && <>
+            <Toggle on={publish} onChange={setPublish} label="Publish on Halyard" help={https && cfg.data?.settings.halyard.auto_cert ? 'Adds a Halyard host for these domains and requests a certificate if none covers them.' : 'Adds a Halyard host for these domains.'} />
+            {publish && <div className="grid2">
+              <Field label="VIP"><select className="input" value={vip} onChange={(e) => setVip(e.target.value)}>
+                <option value="">Choose a VIP</option>
+                {hal.data!.vips.map((v) => <option key={v.id} value={v.id}>{vipLabel(v)}</option>)}</select></Field>
+              <Field label="Exposure"><select className="input" value={exposure} onChange={(e) => setExposure(e.target.value)}>
+                {Object.entries(exposureLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+            </div>}
+          </>}
           {type === 'wordpress' && <>
             <div className="navlabel" style={{ padding: '6px 0 12px' }}>WordPress</div>
             <Field label="Site title"><input className="input" placeholder={domain || 'My site'} value={title} onChange={(e) => setTitle(e.target.value)} /></Field>

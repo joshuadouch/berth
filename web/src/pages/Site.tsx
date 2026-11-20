@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ago, Backup, bytes, del, fmtDate, get, Job, post, put, Site, SiteDetail, siteURL, typeLabel, WPInfo } from '../api';
+import { ago, Backup, bytes, del, exposureLabel, fmtDate, get, HalyardInfo, Job, post, put, Site, SiteDetail, siteURL, typeLabel, vipLabel, WPInfo } from '../api';
 import { Badge, Chips, Copyable, ErrorBox, Field, Icon, JobBadge, JobView, Loading, Modal, StatusBadge, Toggle, TypeBadge, useLoad, useToast } from '../ui';
 
 const tabs = ['overview', 'settings', 'wordpress', 'backups', 'logs', 'activity'] as const;
@@ -75,6 +75,7 @@ function Overview({ d, reload, startJob }: { d: SiteDetail; reload: () => void; 
         </div>
       </div>
       <div className="stack">
+        <HalyardCard s={s} reload={reload} />
         {s.db && <div className="card"><div className="ch"><h3>Database</h3>
           <button className="btn s" onClick={() => confirm('Set a new database password?' + (s.type === 'wordpress' ? ' wp-config.php is updated for you.' : ' Update your app\'s config afterwards.')) && act(post('/sites/' + s.id + '/db/password'), 'Password changed')}>New password</button></div>
           <div className="cb">
@@ -98,6 +99,49 @@ function Overview({ d, reload, startJob }: { d: SiteDetail; reload: () => void; 
         </div>
       </div>
     </div>
+  );
+}
+
+function HalyardCard({ s, reload }: { s: Site; reload: () => void }) {
+  const info = useLoad(() => get<HalyardInfo>('/halyard'));
+  const toast = useToast();
+  const [vip, setVip] = useState(s.halyard.vip_id);
+  const [exposure, setExposure] = useState(s.halyard.exposure);
+  const [busy, setBusy] = useState(false);
+  const h = s.halyard;
+  const i = info.data;
+  if (!i?.configured && !h.enabled) return null;
+  const run = (p: Promise<unknown>, ok: string) => {
+    setBusy(true);
+    p.then(() => toast(ok)).catch((e) => toast(e.message, true)).finally(() => { setBusy(false); reload(); });
+  };
+  const vipName = (id: string) => { const v = i?.vips.find((x) => x.id === id); return v ? vipLabel(v) : id || 'default'; };
+  return (
+    <div className="card"><div className="ch"><h3>Halyard</h3>{!h.enabled ? <Badge kind="n">Not published</Badge> : h.error ? <Badge kind="b">Error</Badge> : h.host_id ? <Badge kind="g">Published</Badge> : <Badge kind="a">Pending</Badge>}</div><div className="cb">
+      {h.error && <div className="err">{h.error}</div>}
+      {i?.error && <div className="err">{i.error}</div>}
+      {h.enabled && <div className="kv" style={{ marginBottom: 12 }}>
+        <div>VIP</div><div>{vipName(h.vip_id)}</div>
+        <div>Exposure</div><div>{exposureLabel[h.exposure] ?? (h.exposure || 'default')}</div>
+        <div>Domains</div><div>{[s.domain, ...(s.aliases ?? [])].join(', ')}</div>
+        {h.cert_id && <><div>Certificate</div><div>Requested by Berth</div></>}
+      </div>}
+      {!h.enabled && <p className="muted" style={{ marginBottom: 12 }}>Add a host on Halyard for this site's domains{s.https ? ', with a certificate if none covers them' : ''}.</p>}
+      {i?.configured && !i.error && <div className="grid2">
+        <Field label="VIP"><select className="input" value={vip} onChange={(e) => setVip(e.target.value)}>
+          <option value="">Default</option>
+          {i.vips.map((v) => <option key={v.id} value={v.id}>{vipLabel(v)}</option>)}</select></Field>
+        <Field label="Exposure"><select className="input" value={exposure} onChange={(e) => setExposure(e.target.value)}>
+          <option value="">Default</option>
+          {Object.entries(exposureLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+      </div>}
+      <div style={{ display: 'flex', gap: 8 }}>
+        {i?.configured && <button className="btn s p" disabled={busy || s.status !== 'active'} onClick={() => run(post('/sites/' + s.id + '/halyard', { vip_id: vip, exposure }), h.enabled ? 'Halyard host updated' : 'Published on Halyard')}>
+          {h.enabled ? 'Update host' : 'Publish on Halyard'}</button>}
+        {h.enabled && <button className="btn s" disabled={busy} onClick={() => confirm('Remove this site\'s host from Halyard? Visitors will no longer reach it through the load balancer.') && run(del('/sites/' + s.id + '/halyard'), 'Removed from Halyard')}>Remove from Halyard</button>}
+      </div>
+      {h.enabled && <div className="dim" style={{ fontSize: 12, marginTop: 10 }}>Changes to this site's domains or HTTPS update the host automatically. Edits you make on Halyard (HSTS, allow lists and so on) are kept.</div>}
+    </div></div>
   );
 }
 

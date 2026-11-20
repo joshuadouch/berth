@@ -20,6 +20,11 @@ export interface Disk { path: string; total: number; free: number }
 export interface User { id: string; username: string; email: string; totp_enabled: boolean }
 
 export interface HalyardSettings { url: string; token?: string; pool_id: string; vip_id: string; exposure: string; insecure: boolean; auto_cert: boolean }
+export interface HalyardVIP { id: string; address: string; label: string }
+export interface HalyardPool { id: string; name: string; members: { name: string; address: string }[] | null }
+export interface HalyardInfo { configured: boolean; error?: string; vips: HalyardVIP[]; pools: HalyardPool[]; pool_ok: boolean; local_addr: string }
+export const exposureLabel: Record<string, string> = { lan: 'LAN only', public: 'Public (DNS points at your WAN)', tunnel: 'Cloudflare Tunnel' };
+export const vipLabel = (v: HalyardVIP) => (v.label ? `${v.label} (${v.address.split('/')[0]})` : v.address.split('/')[0]);
 export interface Settings {
   trusted_proxies: string[] | null; proxy_only: boolean; default_php: string;
   backup_enabled: boolean; backup_time: string; backup_keep: number; backup_dir: string;
