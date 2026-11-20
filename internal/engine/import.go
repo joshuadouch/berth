@@ -390,7 +390,7 @@ func findWebRoot(stage string, wordpress bool) (string, error) {
 			return nil
 		})
 		if best == "" {
-			return "", errors.New("the archive does not contain a WordPress site (no wp-load.php found)")
+			return "", errors.New("the archive has no WordPress in it (no wp-load.php found). If it is a plain HTML or PHP site, delete this site and create it again as a PHP site (or PHP + database), with the same upload")
 		}
 		return best, nil
 	}

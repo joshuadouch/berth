@@ -60,6 +60,12 @@ func (f *fakeHalyard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(path, "/api/certs/") && r.Method == "DELETE":
 		delete(f.certs, strings.TrimPrefix(path, "/api/certs/"))
 		send(map[string]any{"ok": true})
+	case path == "/api/hosts" && r.Method == "GET":
+		out := []map[string]any{}
+		for _, h := range f.hosts {
+			out = append(out, h)
+		}
+		send(out)
 	case path == "/api/hosts" && r.Method == "POST", strings.HasPrefix(path, "/api/hosts/") && r.Method == "PUT":
 		var h map[string]any
 		dec := json.NewDecoder(r.Body)
@@ -202,5 +208,53 @@ func TestWithDefaultRoute(t *testing.T) {
 	}
 	if out := withDefaultRoute(nil, "p1"); len(out) != 1 {
 		t.Fatalf("%+v", out)
+	}
+}
+
+func TestHalyardTakeover(t *testing.T) {
+	e := testEngine(t)
+	ctx := context.Background()
+	f := &fakeHalyard{hosts: map[string]map[string]any{}, certs: map[string][]string{"cold": {"shop.test", "www.shop.test"}}}
+	srv := httptest.NewTLSServer(f)
+	defer srv.Close()
+	e.HalyardHTTP = srv.Client()
+	st, _ := e.Store.Settings(ctx)
+	st.Halyard = model.HalyardSettings{URL: srv.URL, Token: "hlt_test", PoolID: "p1", VIPID: "v1", Exposure: "public", AutoCert: true}
+	_ = e.Store.SetSettings(ctx, st)
+	old := func(names ...any) map[string]any {
+		return map[string]any{"id": "old", "hostnames": names, "vip_id": "v9", "exposure": "tunnel", "publish_dns": false,
+			"hsts": true, "routes": []any{map[string]any{"path_prefix": "/api", "pool_id": "api"}, map[string]any{"path_prefix": "", "pool_id": "oldweb"}}}
+	}
+	s := model.Site{ID: "shop", Name: "shop", Type: model.TypePHP, Domain: "shop.test", Aliases: []string{"www.shop.test"},
+		PHPVersion: "8.3", Enabled: true, HTTPS: true, Status: model.StatusActive}
+	_ = e.Store.SaveSite(ctx, s)
+
+	// Extra names on the existing host: refused, nothing changed.
+	f.hosts["old"] = old("shop.test", "WWW.shop.test", "blog.shop.test")
+	if _, err := e.LinkHalyard(ctx, "shop", model.HalyardLink{}, "t"); err == nil || !strings.Contains(err.Error(), "blog.shop.test") {
+		t.Fatalf("extra names: %v", err)
+	}
+	// Fewer names: refused.
+	f.hosts["old"] = old("shop.test")
+	if _, err := e.LinkHalyard(ctx, "shop", model.HalyardLink{}, "t"); err == nil || !strings.Contains(err.Error(), "does not serve www.shop.test") {
+		t.Fatalf("missing names: %v", err)
+	}
+	if f.hosts["old"]["routes"].([]any)[1].(map[string]any)["pool_id"] != "oldweb" || len(f.hosts) != 1 {
+		t.Fatalf("changed on error: %+v", f.hosts)
+	}
+
+	// Exactly the same names (any case): taken over, only the backend moves.
+	f.hosts["old"] = old("WWW.shop.test", "shop.test")
+	s, err := e.LinkHalyard(ctx, "shop", model.HalyardLink{}, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := f.hosts["old"]
+	routes := h["routes"].([]any)
+	if len(f.hosts) != 1 || s.Halyard.HostID != "old" || len(routes) != 2 || routes[0].(map[string]any)["pool_id"] != "api" || routes[1].(map[string]any)["pool_id"] != "p1" {
+		t.Fatalf("takeover: %+v %+v", s.Halyard, h)
+	}
+	if h["vip_id"] != "v9" || h["exposure"] != "tunnel" || h["publish_dns"] != false || h["hsts"] != true || s.Halyard.CertID != "" || len(f.certs) != 1 {
+		t.Fatalf("settings not kept: %+v %+v %v", s.Halyard, h, f.certs)
 	}
 }
