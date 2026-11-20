@@ -1,3 +1,145 @@
 # Berth
 
-A small hosting control panel for WordPress and PHP sites, built to sit behind Halyard.
+A small hosting control panel for your own WordPress and PHP sites, built to
+sit behind [Halyard](https://github.com/joshuadouch/halyard). Berth is a single
+Go binary with a web UI. It drives **nginx**, **PHP-FPM** (several versions side
+by side, from packages.sury.org), **MariaDB** and **WP-CLI** on one Debian
+machine.
+
+There are no hosting customers or reseller accounts: one admin manages every
+site.
+
+- **One-click WordPress.** Enter a domain and Berth creates the site, its
+  database, installs WordPress, sets pretty permalinks and shows the admin
+  password once.
+- **PHP + database** and **PHP** sites for everything else, with a document root
+  in a subfolder (Laravel, Bedrock) and pretty URLs through `index.php` when you
+  want them.
+- **Isolation.** Each site has its own Linux user, PHP-FPM pool (with
+  `open_basedir`), database and database user. One site cannot read another's
+  files.
+- **Save means apply.** Every change renders nginx and PHP-FPM config, checks it
+  with `nginx -t` and `php-fpm -t`, and reloads. A config that fails a check is
+  rolled back and nothing changes.
+- **Backups.** Nightly per-site backups (files, database dump and settings in
+  one `.tar.gz`), retention per site, download, and restore (a safety backup is
+  taken first). Deleting a site keeps a final backup by default.
+- **WordPress tools.** Version and update status, one-click update of core,
+  plugins, themes and translations (backed up first), password reset for any
+  WordPress user, and WP-Cron run by Berth every five minutes instead of on page
+  views. Changing a WordPress site's domain rewrites its URLs in the database.
+- **SFTP per site**, locked into the site's folder, with a password or SSH keys.
+- **Logs.** Access, nginx error and PHP error logs for each site in the UI.
+- PHP version, memory, upload limit and workers per site; extra domains with an
+  optional redirect to the main one; take a site offline with a 503 page.
+
+## Install on Proxmox VE
+
+Run this in the Proxmox node shell. It creates an unprivileged Debian 12 LXC and
+installs everything inside it.
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/joshuadouch/berth/main/ct/berth.sh)"
+```
+
+The script asks for the container ID, size, bridge and address (a fixed address
+is best, since Halyard points at it), the first PHP version, and optionally a
+folder on the Proxmox host to keep backups in. That folder is bind-mounted at
+`/var/backups/berth`; an unprivileged container writes to it as uid 100000, so
+give that user write access. Every prompt can be preset with an environment
+variable (see the top of `ct/berth.sh`), and `UNATTENDED=1` accepts defaults.
+
+Open `https://<container-ip>:8443` and create the admin account straight away:
+until it exists, anyone who can reach the port can claim it.
+
+### Any Debian 12 or 13 VM or LXC
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/joshuadouch/berth/main/install/berth-install.sh
+bash berth-install.sh
+```
+
+Options are environment variables: `BERTH_VERSION`, `BERTH_PHP` (default
+`8.4`), `BERTH_LISTEN`, `BERTH_BINARY` (use a binary you already copied) and
+`BERTH_NO_SFTP=1`.
+
+## Behind Halyard
+
+Sites listen on plain HTTP port 80. Halyard terminates TLS and owns the
+certificates.
+
+1. In Halyard, add a pool with this server's address on port 80. Use an HTTP
+   health check on `/berth-health`.
+2. For each site, add a Halyard host with its domains pointing at that pool.
+3. In Berth, open **Settings** and add your Halyard nodes (or their subnet) as
+   **trusted proxies**.
+
+Trusted proxies may tell sites two things, and nobody else can:
+
+- **The visitor's address.** Halyard sends `X-Real-IP` (already restored from
+  `CF-Connecting-IP` for Cloudflare traffic), and nginx uses it as the client
+  address, so PHP, WordPress and the access logs see the real visitor.
+- **HTTPS.** When Halyard sends `X-Forwarded-Proto: https`, nginx gives PHP
+  `HTTPS=on`, port 443 and the `https` scheme. WordPress builds `https://`
+  links and never loops on redirects, with no plugin or `wp-config.php` change.
+
+Turn on **Refuse visitors that skip the load balancer** to answer 403 to any
+request that does not come from a trusted proxy.
+
+## Sites on disk
+
+```
+/srv/sites/<name>/            root, 0751 (SFTP chroot)
+/srv/sites/<name>/public/     the web root, owned by site_<name>
+/srv/sites/<name>/logs/       PHP error log
+/srv/sites/<name>/tmp/        uploads and temp files, private
+/srv/sites/<name>/sessions/   PHP sessions, private
+/var/log/berth/<name>/        nginx access and error logs
+/var/backups/berth/<name>/    backups
+```
+
+Copied files in as root? Press **Fix permissions** on the site page. To bring in
+a backup from elsewhere, copy it into `/var/backups/berth/<name>/` and restore it
+from the site's Backups tab.
+
+## SFTP
+
+Turn on SFTP in a site's settings, then set a password on its Overview tab or
+paste SSH keys. Log in as `site_<name>` on port 22; you land in the site's
+folder and cannot leave it. Upload into `public`.
+
+## Updating
+
+Every change merged to `main` publishes a new release automatically
+(`v0.1.<build>`). Update from the **System** page, or run this on the Proxmox
+host:
+
+```bash
+pct exec <CTID> -- berth-update
+```
+
+It downloads the latest installer and binary, keeps sites, databases, backups
+and settings, and restarts Berth. Sites keep serving throughout. To pin or roll
+back a version, run `BERTH_VERSION=v0.1.7 berth-update`.
+
+## Commands
+
+```
+berth serve     run the API, UI and scheduled jobs (the systemd service)
+berth apply     write nginx and PHP-FPM config for every site
+berth render    print that config without writing it
+berth passwd    reset the admin password and turn off 2FA
+berth version
+```
+
+Locked out? Run `berth passwd` in the container.
+
+## Development
+
+```bash
+make build      # builds the UI and bin/berth
+make test
+```
+
+`dry_run: true` in the config file writes nginx and PHP-FPM config but runs no
+system commands.

@@ -1,0 +1,312 @@
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { ago, Backup, bytes, del, fmtDate, get, Job, post, put, Site, SiteDetail, siteURL, typeLabel, WPInfo } from '../api';
+import { Badge, Chips, Copyable, ErrorBox, Field, Icon, JobBadge, JobView, Loading, Modal, StatusBadge, Toggle, TypeBadge, useLoad, useToast } from '../ui';
+
+const tabs = ['overview', 'settings', 'wordpress', 'backups', 'logs', 'activity'] as const;
+type Tab = typeof tabs[number];
+const tabLabel: Record<Tab, string> = { overview: 'Overview', settings: 'Settings', wordpress: 'WordPress', backups: 'Backups', logs: 'Logs', activity: 'Activity' };
+
+export default function SitePage() {
+  const { id = '' } = useParams();
+  const [sp, setSp] = useSearchParams();
+  const tab = (sp.get('tab') as Tab) || 'overview';
+  const d = useLoad(() => get<SiteDetail>('/sites/' + id), [id], 5000);
+  const [job, setJob] = useState<number | null>(null);
+  const toast = useToast();
+  if (!d.data) return d.error ? <ErrorBox error={d.error} /> : <Loading />;
+  const s = d.data.site;
+  const visible = tabs.filter((t) => t !== 'wordpress' || s.type === 'wordpress');
+  const startJob = (p: Promise<{ job_id: number }>, msg?: string) => p.then((r) => { setJob(r.job_id); if (msg) toast(msg); d.reload(); }).catch((e) => toast(e.message, true));
+  return (
+    <>
+      <div className="head">
+        <div style={{ minWidth: 0 }}>
+          <div className="sitehead"><h1>{s.domain}</h1><TypeBadge type={s.type} /><StatusBadge status={s.status} enabled={s.enabled} /></div>
+          <div className="sub">{s.name} · PHP {s.php_version}{s.aliases?.length ? ' · also ' + s.aliases.join(', ') : ''}</div>
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          {s.status === 'error' && <button className="btn p" onClick={() => startJob(post('/sites/' + s.id + '/retry'), 'Retrying')}><Icon name="sync" />Retry</button>}
+          <a className="btn" href={siteURL(s)} target="_blank" rel="noreferrer"><Icon name="ext" />Visit</a>
+          {s.type === 'wordpress' && s.status === 'active' && <a className="btn" href={siteURL(s) + '/wp-admin/'} target="_blank" rel="noreferrer"><Icon name="wp" />WP admin</a>}
+        </div>
+      </div>
+      {s.status === 'error' && <div className="err">Creating this site failed: {s.status_error}. Fix the cause (see the Activity tab) and press Retry.</div>}
+      <div className="tabs">{visible.map((t) => <span key={t} className={t === tab ? 'on' : ''} onClick={() => setSp(t === 'overview' ? {} : { tab: t })}>{tabLabel[t]}</span>)}</div>
+      {tab === 'overview' && <Overview d={d.data} reload={d.reload} startJob={startJob} />}
+      {tab === 'settings' && <SettingsTab s={s} sftp={d.data.sftp_available} onSaved={(j) => { d.reload(); if (j) setJob(j); }} />}
+      {tab === 'wordpress' && <WordPressTab s={s} startJob={startJob} />}
+      {tab === 'backups' && <BackupsTab s={s} backups={d.data.backups} reload={d.reload} startJob={startJob} />}
+      {tab === 'logs' && <LogsTab s={s} />}
+      {tab === 'activity' && <ActivityTab d={d.data} open={setJob} />}
+      {job !== null && <Modal title="Job" onClose={() => { setJob(null); d.reload(); }}><JobView id={job} onDone={() => d.reload()} /></Modal>}
+    </>
+  );
+}
+
+function Overview({ d, reload, startJob }: { d: SiteDetail; reload: () => void; startJob: (p: Promise<{ job_id: number }>, m?: string) => void }) {
+  const s = d.site;
+  const toast = useToast();
+  const [dbpw, setDbpw] = useState(false);
+  const [sftpPw, setSftpPw] = useState('');
+  const act = (p: Promise<unknown>, ok: string) => p.then(() => { toast(ok); reload(); }).catch((e) => toast(e.message, true));
+  return (
+    <div className="grid2" style={{ alignItems: 'start' }}>
+      <div className="stack">
+        <div className="card"><div className="ch"><h3>Site</h3></div><div className="cb kv">
+          <div>Address</div><div><a href={siteURL(s)} target="_blank" rel="noreferrer">{siteURL(s)}</a></div>
+          {(s.aliases?.length ?? 0) > 0 && <><div>Other domains</div><div>{s.aliases!.join(', ')}{s.redirect_aliases && <span className="dim"> (redirected)</span>}</div></>}
+          <div>Type</div><div>{typeLabel[s.type]}</div>
+          <div>PHP</div><div>{s.php_version} · {s.memory_mb} MB memory · {s.upload_mb} MB uploads · {s.max_children} workers</div>
+          <div>Created</div><div>{fmtDate(s.created_at)}</div>
+          <div>Disk</div><div>{bytes(d.usage.files)} files{s.db ? ' · ' + bytes(d.usage.db) + ' database' : ''}</div>
+          <div>Last backup</div><div>{d.backups[0] ? ago(d.backups[0].time) : 'none'}{!s.backups && <span className="dim"> (nightly off)</span>}</div>
+          {s.notes && <><div>Notes</div><div style={{ whiteSpace: 'pre-wrap' }}>{s.notes}</div></>}
+        </div></div>
+        <div className="card"><div className="ch"><h3>Files</h3>
+          <button className="btn s" onClick={() => act(post('/sites/' + s.id + '/fix-permissions'), 'Ownership fixed')}>Fix permissions</button></div>
+          <div className="cb kv">
+            <div>Folder</div><div className="mono">{d.dir}</div>
+            <div>Web root</div><div className="mono">{d.dir}/public{s.doc_root ? '/' + s.doc_root : ''}</div>
+            <div>System user</div><div className="mono">{d.user}</div>
+            <div>PHP socket</div><div className="mono">{d.socket}</div>
+          </div>
+          <div className="cb dim" style={{ paddingTop: 0, fontSize: 12 }}>Copied files in as root? Press Fix permissions so PHP can write where it needs to.</div>
+        </div>
+      </div>
+      <div className="stack">
+        {s.db && <div className="card"><div className="ch"><h3>Database</h3>
+          <button className="btn s" onClick={() => confirm('Set a new database password?' + (s.type === 'wordpress' ? ' wp-config.php is updated for you.' : ' Update your app\'s config afterwards.')) && act(post('/sites/' + s.id + '/db/password'), 'Password changed')}>New password</button></div>
+          <div className="cb">
+            <Field label="Host"><Copyable value="localhost" /></Field>
+            <div className="grid2"><Field label="Database"><Copyable value={s.db.name} /></Field><Field label="User"><Copyable value={s.db.user} /></Field></div>
+            <Field label="Password">{dbpw ? <Copyable value={s.db.password ?? ''} /> : <button className="btn s" onClick={() => setDbpw(true)}><Icon name="key" size={13} />Show</button>}</Field>
+          </div></div>}
+        {d.sftp_available && <div className="card"><div className="ch"><h3>SFTP</h3>{s.sftp.enabled ? <Badge kind="g">On</Badge> : <Badge kind="n">Off</Badge>}</div><div className="cb">
+          {!s.sftp.enabled ? <p className="muted">Turn on SFTP in Settings to upload files with an SFTP client. Logins are locked inside this site's folder.</p> : <>
+            <div className="grid2"><Field label="Server"><Copyable value={window.location.hostname} /></Field><Field label="User"><Copyable value={d.user} /></Field></div>
+            <div className="dim" style={{ fontSize: 12, marginBottom: 12 }}>Port 22. Upload into <span className="mono">public</span>. {(s.sftp.keys?.length ?? 0)} SSH key{s.sftp.keys?.length === 1 ? '' : 's'}; password {s.sftp.password_set ? 'set' : 'not set'}.</div>
+            {sftpPw ? <Field label="New password (shown once)"><Copyable value={sftpPw} /></Field> :
+              <button className="btn s" onClick={() => post<{ password: string }>('/sites/' + s.id + '/sftp/password').then((r) => { setSftpPw(r.password); reload(); }).catch((e) => toast(e.message, true))}><Icon name="key" size={13} />{s.sftp.password_set ? 'Set a new password' : 'Create a password'}</button>}
+          </>}
+        </div></div>}
+        <div className="card"><div className="ch"><h3>Backups</h3>
+          <button className="btn s" disabled={s.status !== 'active'} onClick={() => startJob(post('/sites/' + s.id + '/backups'), 'Backup started')}><Icon name="backup" size={13} />Back up now</button></div>
+          {d.backups.length === 0 ? <div className="empty">No backups yet.</div> : <table><tbody>{d.backups.slice(0, 3).map((b) => (
+            <tr key={b.file}><td className="mono" style={{ fontSize: 12 }}>{b.file}</td><td className="muted">{bytes(b.size)}</td><td className="muted" style={{ textAlign: 'right' }}>{ago(b.time)}</td></tr>
+          ))}</tbody></table>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsTab({ s, sftp, onSaved }: { s: Site; sftp: boolean; onSaved: (job: number) => void }) {
+  const cfg = useLoad(() => get<{ installed_php: string[] }>('/settings'));
+  const [f, setF] = useState<Site>(s);
+  const [keys, setKeys] = useState((s.sftp.keys ?? []).join('\n'));
+  const [replace, setReplace] = useState(true);
+  const [err, setErr] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const [delOpen, setDelOpen] = useState(false);
+  const toast = useToast();
+  useEffect(() => { setF(s); setKeys((s.sftp.keys ?? []).join('\n')); }, [s.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const set = (p: Partial<Site>) => setF({ ...f, ...p });
+  const urlChanged = siteURL(f) !== siteURL(s);
+  const save = async () => {
+    setErr(null); setBusy(true);
+    try {
+      const body = { ...f, sftp: { ...f.sftp, keys: keys.split('\n').map((k) => k.trim()).filter(Boolean) }, replace_urls: replace };
+      const r = await put<{ job_id: number }>('/sites/' + s.id, body);
+      toast('Saved and applied');
+      onSaved(r.job_id);
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+  const busySite = s.status === 'provisioning' || s.status === 'deleting';
+  return (
+    <div style={{ maxWidth: 860 }}>
+      <ErrorBox error={err} />
+      <div className="card"><div className="ch"><h3>Domains</h3></div><div className="cb">
+        <Field label="Main domain"><input className="input" value={f.domain} onChange={(e) => set({ domain: e.target.value.trim().toLowerCase() })} /></Field>
+        <Field label="Other domains"><Chips values={f.aliases ?? []} onChange={(v) => set({ aliases: v })} placeholder="www.example.com" mono /></Field>
+        {(f.aliases?.length ?? 0) > 0 && <Toggle on={f.redirect_aliases} onChange={(v) => set({ redirect_aliases: v })} label="Redirect other domains to the main domain" />}
+        <Field label="Visitors use">
+          <select className="input" value={f.https ? 'https' : 'http'} onChange={(e) => set({ https: e.target.value === 'https' })}>
+            <option value="https">HTTPS (Halyard or Cloudflare ends TLS)</option><option value="http">HTTP only</option>
+          </select>
+        </Field>
+        {urlChanged && s.type === 'wordpress' && <Toggle on={replace} onChange={setReplace} label={`Change ${siteURL(s)} to ${siteURL(f)} in the WordPress database`} help="Runs wp search-replace and updates the home and site URLs. Leave on unless you are doing it yourself." />}
+      </div></div>
+      <div className="card" style={{ marginTop: 16 }}><div className="ch"><h3>PHP</h3></div><div className="cb">
+        <div className="grid2">
+          <Field label="PHP version"><select className="input" value={f.php_version} onChange={(e) => set({ php_version: e.target.value })}>
+            {(cfg.data?.installed_php ?? [f.php_version]).map((v) => <option key={v} value={v}>PHP {v}</option>)}</select></Field>
+          <Field label="Workers" help="Most PHP requests this site runs at once."><input className="input" type="number" min={1} max={200} value={f.max_children} onChange={(e) => set({ max_children: +e.target.value })} /></Field>
+          <Field label="Memory limit (MB)"><input className="input" type="number" min={32} value={f.memory_mb} onChange={(e) => set({ memory_mb: +e.target.value })} /></Field>
+          <Field label="Upload limit (MB)"><input className="input" type="number" min={1} value={f.upload_mb} onChange={(e) => set({ upload_mb: +e.target.value })} /></Field>
+        </div>
+        {s.type !== 'wordpress' && <>
+          <Field label="Document root inside public" help="Leave empty to serve public itself."><input className="input mono" value={f.doc_root} onChange={(e) => set({ doc_root: e.target.value })} /></Field>
+          <Toggle on={f.front_controller} onChange={(v) => set({ front_controller: v })} label="Send unknown paths to index.php" />
+        </>}
+      </div></div>
+      <div className="card" style={{ marginTop: 16 }}><div className="ch"><h3>Access and backups</h3></div><div className="cb">
+        <Toggle on={f.enabled} onChange={(v) => set({ enabled: v })} label="Site is online" help="When off, visitors get a 503 page. Files and database are kept." />
+        <Toggle on={f.backups} onChange={(v) => set({ backups: v })} label="Include in nightly backups" />
+        {sftp && <>
+          <Toggle on={f.sftp.enabled} onChange={(v) => set({ sftp: { ...f.sftp, enabled: v } })} label="SFTP access" help="Logins only see this site's folder. Set a password on the Overview tab, or add SSH keys here." />
+          {f.sftp.enabled && <Field label="SSH public keys, one per line"><textarea className="input" value={keys} onChange={(e) => setKeys(e.target.value)} placeholder="ssh-ed25519 AAAA… you@laptop" /></Field>}
+        </>}
+        <Field label="Notes"><textarea className="input" style={{ fontFamily: 'inherit', fontSize: 13 }} value={f.notes} onChange={(e) => set({ notes: e.target.value })} /></Field>
+      </div></div>
+      <div className="row" style={{ marginTop: 16, justifyContent: 'space-between' }}>
+        <button className="btn p" disabled={busy || busySite} onClick={save}>Save changes</button>
+        <button className="btn danger" disabled={busySite} onClick={() => setDelOpen(true)}><Icon name="trash" size={13} />Delete site</button>
+      </div>
+      {delOpen && <DeleteModal s={s} onClose={() => setDelOpen(false)} />}
+    </div>
+  );
+}
+
+function DeleteModal({ s, onClose }: { s: Site; onClose: () => void }) {
+  const [typed, setTyped] = useState('');
+  const [backup, setBackup] = useState(true);
+  const [job, setJob] = useState<number | null>(null);
+  const [err, setErr] = useState<unknown>(null);
+  const nav = useNavigate();
+  return (
+    <Modal title={'Delete ' + s.domain} onClose={job ? () => nav('/sites') : onClose}>
+      {job ? <JobView id={job} onDone={(j: Job) => j.status === 'ok' && setTimeout(() => nav('/sites'), 1500)} /> : <>
+        <ErrorBox error={err} />
+        <p style={{ marginBottom: 12 }}>This removes the site's files{s.db ? ', database' : ''}, PHP pool, nginx config and system user.</p>
+        <Toggle on={backup} onChange={setBackup} label="Keep a final backup first" help="Final backups are never pruned. Delete them from the Backups page when you no longer need them." />
+        <Field label={`Type ${s.domain} to confirm`}><input className="input" value={typed} onChange={(e) => setTyped(e.target.value)} /></Field>
+        <button className="btn danger" disabled={typed !== s.domain} onClick={() => del<{ job_id: number }>('/sites/' + s.id + '?backup=' + (backup ? 1 : 0)).then((r) => setJob(r.job_id)).catch(setErr)}>Delete site</button>
+      </>}
+    </Modal>
+  );
+}
+
+function WordPressTab({ s, startJob }: { s: Site; startJob: (p: Promise<{ job_id: number }>, m?: string) => void }) {
+  const info = useLoad(() => get<WPInfo>('/sites/' + s.id + '/wp'), [s.id]);
+  const [user, setUser] = useState('');
+  const [pw, setPw] = useState<{ user: string; password: string; login_url: string } | null>(null);
+  const [err, setErr] = useState<unknown>(null);
+  if (s.status !== 'active') return <div className="empty">WordPress tools are available once the site is live.</div>;
+  const w = info.data;
+  const updates = w ? (w.core_update ? 1 : 0) + w.plugin_updates + w.theme_updates : 0;
+  return (
+    <div className="grid2" style={{ alignItems: 'start' }}>
+      <div className="stack">
+        <div className="card"><div className="ch"><h3>WordPress</h3>
+          {w && <button className="btn s" onClick={info.reload}><Icon name="sync" size={12} />Check again</button>}</div>
+          {!w ? (info.error ? <div className="cb"><ErrorBox error={info.error} /></div> : <Loading />) : w.error ? <div className="cb"><div className="err">{w.error}</div></div> : <>
+            <div className="cb kv">
+              <div>Version</div><div>{w.version} {w.core_update ? <Badge kind="w">{w.core_update} available</Badge> : <Badge kind="g">Up to date</Badge>}</div>
+              <div>Site address</div><div className="mono">{w.siteurl}</div>
+              <div>Plugins</div><div>{w.plugins?.length ?? 0}{w.plugin_updates > 0 && <> · <Badge kind="w">{w.plugin_updates} to update</Badge></>}</div>
+              <div>Themes</div><div>{w.themes?.length ?? 0}{w.theme_updates > 0 && <> · <Badge kind="w">{w.theme_updates} to update</Badge></>}</div>
+            </div>
+            <div className="cb" style={{ borderTop: '1px solid var(--line)' }}>
+              <button className="btn p" onClick={() => startJob(post('/sites/' + s.id + '/wp/update'), 'Updating WordPress')}><Icon name="sync" size={13} />{updates ? `Update everything (${updates})` : 'Run updates'}</button>
+              <small className="help">Backs up the site first, then updates core, plugins, themes and translations.</small>
+            </div>
+          </>}
+        </div>
+        <div className="card"><div className="ch"><h3>Reset a login</h3></div><div className="cb">
+          <ErrorBox error={err} />
+          {pw ? <>
+            <Field label="User"><Copyable value={pw.user} /></Field>
+            <Field label="New password (shown once)"><Copyable value={pw.password} /></Field>
+            <a className="btn" href={pw.login_url} target="_blank" rel="noreferrer"><Icon name="ext" size={13} />Open WP admin</a>
+          </> : <>
+            <Field label="WordPress username" help={`Leave empty for ${s.wp?.admin_user ?? 'the admin created with the site'}.`}><input className="input" value={user} onChange={(e) => setUser(e.target.value)} placeholder={s.wp?.admin_user} /></Field>
+            <button className="btn" onClick={() => post('/sites/' + s.id + '/wp/admin-password', { user }).then(setPw).catch(setErr)}><Icon name="key" size={13} />Set a new password</button>
+          </>}
+        </div></div>
+      </div>
+      {w && !w.error && <div className="card"><div className="ch"><h3>Plugins and themes</h3></div>
+        <table><thead><tr><th>Name</th><th>Version</th><th>Status</th></tr></thead><tbody>
+          {[...(w.plugins ?? []).map((p) => ({ ...p, kind: 'plugin' })), ...(w.themes ?? []).map((p) => ({ ...p, kind: 'theme' }))].map((p) => (
+            <tr key={p.kind + p.name}><td><b>{p.title || p.name}</b><div className="dim" style={{ fontSize: 11 }}>{p.kind}</div></td>
+              <td className="mono">{p.version}{p.update && <div style={{ color: '#fcd34d' }}>→ {p.update}</div>}</td>
+              <td>{p.status === 'active' ? <Badge kind="g">Active</Badge> : <Badge kind="n">{p.status}</Badge>}</td></tr>
+          ))}
+          {(w.plugins?.length ?? 0) + (w.themes?.length ?? 0) === 0 && <tr><td colSpan={3} className="muted">None installed.</td></tr>}
+        </tbody></table>
+      </div>}
+    </div>
+  );
+}
+
+export function BackupTable({ backups, site, reload, startJob, showSite }: { backups: Backup[]; site?: Site; reload: () => void; startJob: (p: Promise<{ job_id: number }>, m?: string) => void; showSite?: boolean }) {
+  const toast = useToast();
+  if (backups.length === 0) return <div className="empty">No backups yet.</div>;
+  return (
+    <table>
+      <thead><tr>{showSite && <th>Site</th>}<th>Backup</th><th>Size</th><th>Taken</th><th></th></tr></thead>
+      <tbody>{backups.map((b) => (
+        <tr key={b.site + b.file}>
+          {showSite && <td><Link to={'/sites/' + b.site}>{b.site}</Link></td>}
+          <td className="mono" style={{ fontSize: 12 }}>{b.file}{b.file.endsWith('-final.tar.gz') && <> <Badge kind="w">final</Badge></>}</td>
+          <td className="muted">{bytes(b.size)}</td>
+          <td className="muted">{fmtDate(b.time)}</td>
+          <td style={{ textAlign: 'right' }}>
+            <a className="btn s ghost" href={`/api/sites/${b.site}/backups/${b.file}`} title="Download"><Icon name="down" size={13} /></a>
+            {site && site.status === 'active' && <button className="btn s ghost" title="Restore" onClick={() => confirm(`Restore ${site.domain} from ${b.file}? Its files${site.db ? ' and database' : ''} are replaced. A backup of the current state is taken first.`) && startJob(post(`/sites/${b.site}/backups/${b.file}/restore`), 'Restoring')}><Icon name="hist" size={13} /></button>}
+            <button className="btn s ghost" title="Delete" onClick={() => confirm(`Delete ${b.file}?`) && del(`/sites/${b.site}/backups/${b.file}`).then(() => { toast('Backup deleted'); reload(); }).catch((e) => toast(e.message, true))}><Icon name="trash" size={13} /></button>
+          </td>
+        </tr>
+      ))}</tbody>
+    </table>
+  );
+}
+
+function BackupsTab({ s, backups, reload, startJob }: { s: Site; backups: Backup[]; reload: () => void; startJob: (p: Promise<{ job_id: number }>, m?: string) => void }) {
+  return (
+    <div className="card">
+      <div className="ch"><h3>Backups of {s.domain}</h3>
+        <button className="btn s p" disabled={s.status !== 'active'} onClick={() => startJob(post('/sites/' + s.id + '/backups'), 'Backup started')}><Icon name="backup" size={13} />Back up now</button></div>
+      <BackupTable backups={backups} site={s} reload={reload} startJob={startJob} />
+      <div className="cb dim" style={{ fontSize: 12, borderTop: '1px solid var(--line)' }}>Each backup is one .tar.gz with the site's files, {s.db ? 'a database dump, ' : ''}and its settings. Restoring takes a backup of the current state first.</div>
+    </div>
+  );
+}
+
+function LogsTab({ s }: { s: Site }) {
+  const [file, setFile] = useState<'access' | 'error' | 'php'>('access');
+  const logs = useLoad(() => get<{ path: string; lines: string[] }>(`/sites/${s.id}/logs?file=${file}&lines=400`), [s.id, file]);
+  return (
+    <div className="card">
+      <div className="ch">
+        <div className="seg">
+          {(['access', 'error', 'php'] as const).map((f) => <span key={f} className={file === f ? 'on' : ''} onClick={() => setFile(f)}>{f === 'access' ? 'Access' : f === 'error' ? 'nginx errors' : 'PHP errors'}</span>)}
+        </div>
+        <button className="btn s" onClick={logs.reload}><Icon name="sync" size={12} />Refresh</button>
+      </div>
+      <div className="cb">
+        {!logs.data ? <Loading /> : <>
+          <div className="dim mono" style={{ marginBottom: 8, fontSize: 11 }}>{logs.data.path}</div>
+          {logs.data.lines.length === 0 ? <div className="empty">Empty.</div> : <div className="code logview mono">{logs.data.lines.join('\n')}</div>}
+        </>}
+      </div>
+    </div>
+  );
+}
+
+function ActivityTab({ d, open }: { d: SiteDetail; open: (id: number) => void }) {
+  return (
+    <div className="grid2" style={{ alignItems: 'start' }}>
+      <div className="card"><div className="ch"><h3>Jobs</h3></div>
+        {d.jobs.length === 0 ? <div className="empty">No jobs.</div> : <table><tbody>{d.jobs.map((j) => (
+          <tr key={j.id} className="click" onClick={() => open(j.id)}><td style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{j.title}<div className="dim" style={{ fontSize: 12 }}>{j.error.split('\n')[0]}</div></td><td className="muted">{ago(j.started)}</td><td style={{ textAlign: 'right' }}><JobBadge status={j.status} /></td></tr>
+        ))}</tbody></table>}
+      </div>
+      <div className="card"><div className="ch"><h3>Events</h3></div>
+        {d.events.length === 0 ? <div className="empty">No events.</div> : <table><tbody>{d.events.map((e) => (
+          <tr key={e.id}><td style={{ whiteSpace: 'normal' }}>{e.message}</td><td className="muted" style={{ textAlign: 'right' }}>{ago(e.time)}</td></tr>
+        ))}</tbody></table>}
+      </div>
+    </div>
+  );
+}
