@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"net/http"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -29,6 +30,8 @@ type Engine struct {
 	Log     *slog.Logger
 	Run     *sys.Runner
 	Version string
+	// HalyardHTTP overrides the HTTP client used to call Halyard (tests).
+	HalyardHTTP *http.Client
 
 	applyMu sync.Mutex
 	siteMu  sync.Map // site name -> *sync.Mutex

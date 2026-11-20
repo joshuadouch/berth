@@ -83,6 +83,26 @@ Trusted proxies may tell sites two things, and nobody else can:
   `HTTPS=on`, port 443 and the `https` scheme. WordPress builds `https://`
   links and never loops on redirects, with no plugin or `wp-config.php` change.
 
+### Publishing sites on Halyard automatically
+
+Berth can create each site's Halyard host for you.
+
+1. In Halyard, open **Settings → API tokens** and create a token.
+2. In Berth, open **Settings → Halyard**, enter Halyard's URL (for example
+   `https://10.0.30.11:8443`, with **Accept Halyard's self-signed certificate**
+   on) and the token, and save.
+3. Choose the pool for this server, or press **Create pool** to add one that
+   points at this machine on port 80 with a `/berth-health` check. Pick a
+   default VIP and exposure, and whether HTTPS sites get a certificate.
+
+New sites then have a **Publish on Halyard** option, and existing sites have a
+Halyard card on their Overview tab. Berth keeps the host's domains, VIP,
+exposure and HTTPS in step with the site, and leaves anything else you change on
+Halyard (HSTS, allow lists, extra routes) alone. When an HTTPS site's domains are
+not covered by an existing certificate (a wildcard, say), Berth asks Halyard to
+issue one. Deleting a site, or pressing **Remove from Halyard**, deletes its host
+and the certificate Berth requested once nothing else uses it.
+
 Turn on **Refuse visitors that skip the load balancer** to answer 403 to any
 request that does not come from a trusted proxy.
 

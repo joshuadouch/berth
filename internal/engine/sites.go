@@ -78,7 +78,11 @@ func (e *Engine) CreateSite(ctx context.Context, req CreateRequest, author strin
 	s.Status = model.StatusProvisioning
 	s.StatusError = ""
 	s.CreatedAt = time.Now().UTC()
-	s.Halyard = model.HalyardLink{}
+	// Only the request to publish survives; ids come from Halyard.
+	s.Halyard = model.HalyardLink{Enabled: s.Halyard.Enabled, VIPID: s.Halyard.VIPID, Exposure: s.Halyard.Exposure}
+	if !validExposure(s.Halyard.Exposure) {
+		return CreateResult{}, fmt.Errorf("unknown exposure %q", s.Halyard.Exposure)
+	}
 	s.SFTP.PasswordSet = false
 	if s.Type.HasDB() {
 		s.DB = &model.Database{Name: "site_" + strings.ToLower(s.Name), User: "site_" + strings.ToLower(s.Name), Password: Password(24)}
@@ -214,6 +218,9 @@ func (e *Engine) RetryProvision(ctx context.Context, name string) (int64, string
 			cur.Status, cur.StatusError = model.StatusActive, ""
 		}
 		_ = e.Store.SaveSite(ctx, cur)
+		if err == nil {
+			e.syncHalyard(ctx, &cur, logf)
+		}
 		return err
 	})
 	return id, adminPW, err
@@ -262,7 +269,7 @@ func (e *Engine) UpdateSite(ctx context.Context, in model.Site, replaceURLs bool
 	e.Store.AddEvent(ctx, "info", "site", next.Name, author+" updated "+next.Domain)
 	var jobID int64
 	urlChanged := cur.URL() != next.URL()
-	hostsChanged := strings.Join(cur.Hostnames(), ",") != strings.Join(next.Hostnames(), ",")
+	hostsChanged := strings.Join(cur.Hostnames(), ",") != strings.Join(next.Hostnames(), ",") || cur.HTTPS != next.HTTPS
 	if (urlChanged && replaceURLs && next.Type == model.TypeWordPress && next.Status == model.StatusActive) || (hostsChanged && next.Halyard.Enabled) {
 		oldURL := cur.URL()
 		jobID, _ = e.StartJob(next.Name, "update", "Update "+next.Domain, func(ctx context.Context, logf Logf) error {
@@ -309,7 +316,7 @@ func (e *Engine) DeleteSite(ctx context.Context, name string, finalBackup bool, 
 				logf("Final backup: %s", b.File)
 			}
 		}
-		e.unlinkHalyard(ctx, &s, logf)
+		_ = e.unlinkHalyard(ctx, &s, logf)
 		logf("Removing nginx and PHP config")
 		if err := e.Apply(ctx); err != nil {
 			s.Status = prev
