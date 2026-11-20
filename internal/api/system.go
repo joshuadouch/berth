@@ -283,7 +283,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		inUse[site.PHPVersion]++
 	}
 	writeJSON(w, 200, map[string]any{
-		"name": s.Cfg.Name, "version": s.Version, "update": s.Engine.CheckUpdate(r.Context(), r.URL.Query().Get("check") == "1"),
+		"name": s.Cfg.Name, "version": s.Version, "update": s.Engine.CheckUpdate(r.Context(), false),
 		"php_updates":  s.Engine.PHPUpdateStatus(),
 		"php_versions": model.PHPVersions, "installed_php": s.Engine.InstalledPHP(), "php_in_use": inUse,
 		"services": s.Engine.Services(r.Context()), "disks": s.Engine.Disks(r.Context()),
@@ -420,4 +420,9 @@ func (s *Server) testS3(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// checkUpdate asks GitHub for the latest release now.
+func (s *Server) checkUpdate(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, s.Engine.CheckUpdate(r.Context(), true))
 }

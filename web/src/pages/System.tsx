@@ -4,23 +4,25 @@ import { Badge, ErrorBox, Icon, JobView, Loading, Modal, useLoad, useToast } fro
 import { DiskBars, ServiceList } from './Dashboard';
 
 interface Sys {
-  name: string; version: string; update: { current: string; latest: string; latest_url: string; check_error?: string };
+  name: string; version: string; update: UpdateInfo;
   php_versions: string[]; installed_php: string[]; php_in_use: Record<string, number>; services: Service[]; disks: Disk[];
   paths: Record<string, string>; sftp: boolean;
   php_updates: PHPUpdates;
 }
+interface UpdateInfo { current: string; latest: string; latest_url: string; check_error?: string; checked: string }
 interface PHPUpdates { checked: string; updates: { package: string; php: string; from: string; to: string }[] | null; error?: string; checking: boolean }
 
 export default function System() {
-  const [check, setCheck] = useState(0);
-  const { data, error, reload } = useLoad(() => get<Sys>('/system' + (check ? '?check=1' : '')), [check], 20000);
+  const { data, error, reload } = useLoad(() => get<Sys>('/system'), [], 20000);
+  const [checked, setChecked] = useState<UpdateInfo | null>(null);
+  const [checking, setChecking] = useState(false);
   const [job, setJob] = useState<number | null>(null);
   const [updating, setUpdating] = useState(false);
   const [phpCheck, setPhpCheck] = useState<PHPUpdates | null>(null);
   const [phpBusy, setPhpBusy] = useState(false);
   const toast = useToast();
   if (!data) return error ? <ErrorBox error={error} /> : <Loading />;
-  const u = data.update;
+  const u = checked && checked.checked >= data.update.checked ? checked : data.update;
   const pu = phpCheck ?? data.php_updates;
   const ups = pu.updates ?? [];
   const checkPHP = () => { setPhpBusy(true); post<PHPUpdates>('/system/php-updates/check').then(setPhpCheck).catch((e) => toast(e.message, true)).finally(() => setPhpBusy(false)); };
@@ -28,6 +30,15 @@ export default function System() {
     post<{ job_id: number }>('/system/php-updates/apply').then((r) => { setPhpCheck(null); setJob(r.job_id); }).catch((e) => toast(e.message, true));
   const byVersion = ups.reduce<Record<string, string>>((m, x) => { if (x.php && x.package === `php${x.php}-fpm`) m[x.php] = x.to.split('-')[0].split(':').pop()!; return m; }, {});
   const newer = u.latest && u.latest !== u.current;
+  const checkNow = () => {
+    setChecking(true);
+    post<UpdateInfo>('/update/check').then((r) => {
+      setChecked(r);
+      if (r.check_error) toast('Could not check: ' + r.check_error, true);
+      else if (r.latest && r.latest !== r.current) toast(`Berth ${r.latest} is available`);
+      else toast(`Up to date (${r.current})`);
+    }).catch((e) => toast(e.message, true)).finally(() => setChecking(false));
+  };
   const update = () => {
     if (!confirm(`Update Berth to ${u.latest}? The panel restarts for a moment; sites keep running.`)) return;
     post('/update', { version: u.latest }).then(() => {
@@ -41,10 +52,11 @@ export default function System() {
         <button className="btn" onClick={() => post('/system/apply').then(() => toast('Config re-applied')).catch((e) => toast(e.message, true))}><Icon name="sync" />Re-apply config</button></div>
       <div className="grid2" style={{ alignItems: 'start' }}>
         <div className="stack">
-          <div className="card"><div className="ch"><h3>Berth version</h3><button className="btn s ghost" onClick={() => setCheck((c) => c + 1)}><Icon name="sync" size={12} />Check</button></div><div className="cb">
+          <div className="card"><div className="ch"><h3>Berth version</h3><button className="btn s ghost" disabled={checking} onClick={checkNow}><Icon name="sync" size={12} />{checking ? 'Checking…' : 'Check now'}</button></div><div className="cb">
             <div className="kv" style={{ marginBottom: 14 }}>
               <div>Running</div><div className="mono">{u.current}</div>
               <div>Latest</div><div className="mono">{u.latest || '—'} {u.latest && (newer ? <Badge kind="w">Update available</Badge> : <Badge kind="g">Up to date</Badge>)}</div>
+              <div>Checked</div><div className="muted">{u.checked && !u.checked.startsWith('0001') ? ago(u.checked) || 'just now' : 'not yet'}</div>
             </div>
             {u.check_error && <div className="warnbox">Could not check GitHub: {u.check_error}</div>}
             {updating ? <div className="note">Updating… this page reloads when Berth is back.</div> :
