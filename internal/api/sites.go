@@ -306,3 +306,37 @@ func (s *Server) wpAdminPassword(w http.ResponseWriter, r *http.Request) {
 	s.Store.AddEvent(r.Context(), "info", "site", site.Name, "WordPress password reset for "+login)
 	writeJSON(w, 200, map[string]any{"user": login, "password": pw, "login_url": site.URL() + "/wp-admin/"})
 }
+
+func (s *Server) siteNginx(w http.ResponseWriter, r *http.Request) {
+	site, ok := s.site(w, r)
+	if !ok {
+		return
+	}
+	conf, err := s.Engine.SiteNginx(r.Context(), site)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"config": conf, "custom": site.NginxCustom})
+}
+
+func (s *Server) setSiteNginx(w http.ResponseWriter, r *http.Request) {
+	site, ok := s.site(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Custom string `json:"custom"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	next, err := s.Engine.SetNginxCustom(r.Context(), site.Name, in.Custom, currentUser(r).Username)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	conf, _ := s.Engine.SiteNginx(r.Context(), next)
+	writeJSON(w, 200, map[string]any{"config": conf, "custom": next.NginxCustom})
+}

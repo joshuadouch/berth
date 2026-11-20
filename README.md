@@ -163,6 +163,12 @@ New site page instead of copying files by hand. Uploads wait in
 unused). Behind Cloudflare, an upload through the proxy is limited to 100 MB;
 use Berth's LAN address for bigger sites.
 
+Need something Berth's settings don't cover, such as a redirect, a header or an
+extra `location`? Add it under **nginx config** on the site's Settings tab. Your
+directives go inside the site's server block, before Berth's own locations, and
+are kept whenever Berth rewrites the config. `nginx -t` checks them first; if it
+fails, nothing changes and you see nginx's error.
+
 Copied files in as root? Press **Fix permissions** on the site page. To bring in
 a backup from elsewhere, copy it into `/var/backups/berth/<name>/` and restore it
 from the site's Backups tab.

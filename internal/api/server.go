@@ -76,6 +76,8 @@ func (s *Server) Handler() http.Handler {
 	a("DELETE /api/sites/{id}", s.deleteSite)
 	a("POST /api/sites/{id}/retry", s.retrySite)
 	a("POST /api/sites/{id}/fix-permissions", s.fixPermissions)
+	a("GET /api/sites/{id}/nginx", s.siteNginx)
+	a("PUT /api/sites/{id}/nginx", s.setSiteNginx)
 	a("GET /api/sites/{id}/logs", s.siteLogs)
 	a("POST /api/sites/{id}/db/password", s.rotateDBPassword)
 	a("POST /api/sites/{id}/sftp/password", s.sftpPassword)

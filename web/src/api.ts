@@ -8,7 +8,7 @@ export interface Site {
   id: string; name: string; type: SiteType; domain: string; aliases: string[] | null; php_version: string; doc_root: string;
   redirect_aliases: boolean; front_controller: boolean; https: boolean; enabled: boolean; upload_mb: number; memory_mb: number;
   max_children: number; backups: boolean; db?: Database; wp?: WordPress; sftp: SFTP; halyard: HalyardLink; status: string;
-  status_error: string; notes: string; created_at: string;
+  status_error: string; notes: string; created_at: string; nginx_custom?: string;
   import?: { files: string; files_name: string; db: string; db_name: string };
 }
 export interface Usage { files: number; db: number }
