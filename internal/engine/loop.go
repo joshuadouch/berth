@@ -70,6 +70,7 @@ func (e *Engine) measureUsage(ctx context.Context) {
 // disk usage. It returns when ctx ends.
 func (e *Engine) Loop(ctx context.Context) {
 	go e.measureUsage(ctx)
+	go e.fixWebModes(ctx)
 	tick := time.NewTicker(time.Minute)
 	defer tick.Stop()
 	lastCron := time.Time{}
