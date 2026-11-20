@@ -195,13 +195,38 @@ func (c *Client) DeleteCert(ctx context.Context, id string) error {
 	return err
 }
 
+// HealthHost is sent as the Host header of the pool's health check. HAProxy
+// checks speak HTTP/1.1, and nginx answers 400 to HTTP/1.1 without a Host;
+// a name no site uses lands on Berth's default server, which serves
+// /berth-health.
+const HealthHost = "berth-health"
+
+// FixHealthHost adds the Host header to a Berth pool's health check made
+// before Berth set one. It reports whether it changed the pool.
+func (c *Client) FixHealthHost(ctx context.Context, id string) (bool, error) {
+	var p map[string]any
+	if err := c.Do(ctx, "GET", "/api/pools/"+url.PathEscape(id), nil, &p); err != nil {
+		return false, err
+	}
+	h, _ := p["health"].(map[string]any)
+	if h == nil || h["path"] != "/berth-health" || h["type"] != "http" {
+		return false, nil
+	}
+	if hh, _ := h["host_header"].(string); hh != "" {
+		return false, nil
+	}
+	h["host_header"] = HealthHost
+	delete(p, "id")
+	return true, c.Do(ctx, "PUT", "/api/pools/"+url.PathEscape(id), p, nil)
+}
+
 // CreatePool adds a pool that sends traffic to Berth's nginx on addr (ip:80).
 func (c *Client) CreatePool(ctx context.Context, name, member, addr string) (Pool, error) {
 	var out Pool
 	body := map[string]any{
 		"name": name, "mode": "http", "algorithm": "roundrobin",
 		"health": map[string]any{"enabled": true, "type": "http", "method": "GET", "path": "/berth-health",
-			"expect_status": "200", "interval_sec": 5, "fall": 3, "rise": 2},
+			"host_header": HealthHost, "expect_status": "200", "interval_sec": 5, "fall": 3, "rise": 2},
 		"members": []map[string]any{{"name": member, "address": addr, "weight": 100, "state": "ready"}},
 	}
 	return out, c.Do(ctx, "POST", "/api/pools", body, &out)

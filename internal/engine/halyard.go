@@ -68,6 +68,15 @@ func (e *Engine) HalyardInfo(ctx context.Context) HalyardInfo {
 	for _, p := range pools {
 		if p.ID == h.PoolID {
 			info.PoolOK = true
+			if !e.healthFixed.Load() {
+				fixed, err := c.FixHealthHost(ctx, p.ID)
+				if err == nil {
+					e.healthFixed.Store(true)
+				}
+				if fixed {
+					e.Store.AddEvent(ctx, "info", "halyard", "", "Fixed the Halyard pool's health check (it now sends a Host header)")
+				}
+			}
 		}
 	}
 	return info
@@ -88,6 +97,14 @@ func (e *Engine) CreateHalyardPool(ctx context.Context, addr string) (halyard.Po
 	}
 	if _, _, err := net.SplitHostPort(addr); err != nil {
 		addr = net.JoinHostPort(strings.Trim(addr, "[]"), "80")
+	}
+	// Halyard's HAProxy may not resolve this server's name, so give it an IP.
+	if host, port, err := net.SplitHostPort(addr); err == nil && net.ParseIP(host) == nil {
+		ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+		if err != nil || len(ips) == 0 {
+			return halyard.Pool{}, fmt.Errorf("could not resolve %s; enter this server's IP address instead", host)
+		}
+		addr = net.JoinHostPort(ips[0].String(), port)
 	}
 	name := "berth"
 	if e.Cfg.Name != "" {

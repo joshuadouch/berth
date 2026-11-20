@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/joshuadouch/berth/internal/config"
 	"github.com/joshuadouch/berth/internal/model"
@@ -41,8 +42,10 @@ type Engine struct {
 	usage   usageCache
 	upgrade upgradeState
 	remote  remoteCache
-	index   indexCache
-	phpUp   phpUpdateState
+
+	healthFixed atomic.Bool
+	index       indexCache
+	phpUp       phpUpdateState
 }
 
 // New creates an engine.
