@@ -9,6 +9,7 @@ export interface Site {
   redirect_aliases: boolean; front_controller: boolean; https: boolean; enabled: boolean; upload_mb: number; memory_mb: number;
   max_children: number; backups: boolean; db?: Database; wp?: WordPress; sftp: SFTP; halyard: HalyardLink; status: string;
   status_error: string; notes: string; created_at: string;
+  import?: { files: string; files_name: string; db: string; db_name: string };
 }
 export interface Usage { files: number; db: number }
 export interface Backup { site: string; file: string; size: number; time: string; local: boolean; remote: boolean }
@@ -74,16 +75,16 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
 export const get = <T = any>(p: string) => api<T>('GET', p);
 
 // upload sends files as multipart; names may hold folders ("dir/file").
-export async function upload(path: string, files: { file: File; name: string }[], onProgress?: (pct: number) => void): Promise<void> {
+export async function upload<T = void>(path: string, files: { file: File; name: string }[], onProgress?: (pct: number) => void): Promise<T> {
   const fd = new FormData();
   for (const f of files) fd.append('file', f.file, f.name);
-  await new Promise<void>((resolve, reject) => {
+  return new Promise<T>((resolve, reject) => {
     const x = new XMLHttpRequest();
     x.open('POST', '/api' + path);
     x.setRequestHeader('X-Berth', '1');
     x.upload.onprogress = (e) => e.lengthComputable && onProgress?.(Math.round((e.loaded / e.total) * 100));
     x.onload = () => {
-      if (x.status < 300) return resolve();
+      if (x.status < 300) { try { return resolve(JSON.parse(x.responseText)); } catch { return resolve(undefined as T); } }
       let msg = x.statusText;
       try { msg = JSON.parse(x.responseText).error || msg; } catch { /* not JSON */ }
       reject(new ApiError(x.status, msg, null));
@@ -92,6 +93,7 @@ export async function upload(path: string, files: { file: File; name: string }[]
     x.send(fd);
   });
 }
+export interface UploadInfo { id: string; name: string; size: number; kind: string }
 export const post = <T = any>(p: string, b?: unknown) => api<T>('POST', p, b ?? {});
 export const put = <T = any>(p: string, b: unknown) => api<T>('PUT', p, b);
 export const del = <T = any>(p: string) => api<T>('DELETE', p);

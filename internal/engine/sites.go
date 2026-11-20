@@ -106,14 +106,17 @@ func (e *Engine) CreateSite(ctx context.Context, req CreateRequest, author strin
 		if s.WP.Locale == "" {
 			s.WP.Locale = st.WPLocale
 		}
-		if !strings.Contains(s.WP.AdminEmail, "@") {
+		if !strings.Contains(s.WP.AdminEmail, "@") && (s.Import == nil || s.Import.Files == "") {
 			return CreateResult{}, errors.New("WordPress needs an admin email (set a default on the Settings page)")
 		}
 		adminPW = req.WPAdminPassword
 		if adminPW == "" {
 			adminPW = Password(20)
 		}
-		if len(adminPW) < 10 {
+		if s.Import != nil && s.Import.Files != "" {
+			adminPW = "" // an imported site keeps its own users
+		}
+		if len(adminPW) < 10 && adminPW != "" {
 			return CreateResult{}, errors.New("the WordPress admin password must be at least 10 characters")
 		}
 		s.FrontController = true
@@ -121,6 +124,9 @@ func (e *Engine) CreateSite(ctx context.Context, req CreateRequest, author strin
 		s.WP = nil
 	}
 	if err := e.checkSite(ctx, &s, true); err != nil {
+		return CreateResult{}, err
+	}
+	if err := e.checkImport(&s); err != nil {
 		return CreateResult{}, err
 	}
 	if err := e.Store.SaveSite(ctx, s); err != nil {
@@ -172,8 +178,13 @@ func (e *Engine) provision(ctx context.Context, s model.Site, adminPW string, lo
 	if err := e.Apply(ctx); err != nil {
 		return err
 	}
-	switch s.Type {
-	case model.TypeWordPress:
+	switch {
+	case s.Import != nil:
+		if err := e.runImport(ctx, s, logf); err != nil {
+			return err
+		}
+		e.finishImport(ctx, s.Name)
+	case s.Type == model.TypeWordPress:
 		if err := e.installWordPress(ctx, s, adminPW, logf); err != nil {
 			return err
 		}

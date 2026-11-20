@@ -9,6 +9,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joshuadouch/berth/internal/engine"
 )
@@ -134,6 +135,7 @@ func (s *Server) uploadFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dir := r.URL.Query().Get("path")
+	longUpload(w)
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<30)
 	mr, err := r.MultipartReader()
 	if err != nil {
@@ -243,4 +245,52 @@ func (s *Server) dbSQL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, res)
+}
+
+// Site imports -----------------------------------------------------------------
+
+func (s *Server) uploadImport(w http.ResponseWriter, r *http.Request) {
+	longUpload(w)
+	r.Body = http.MaxBytesReader(w, r.Body, 20<<30)
+	mr, err := r.MultipartReader()
+	if err != nil {
+		writeErr(w, 400, "expected a file upload")
+		return
+	}
+	for {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			writeErr(w, 400, err.Error())
+			return
+		}
+		if part.FileName() == "" {
+			continue
+		}
+		info, err := s.Engine.SaveImport(part.FileName(), part)
+		if err != nil {
+			writeErr(w, 400, err.Error())
+			return
+		}
+		writeJSON(w, 200, info)
+		return
+	}
+	writeErr(w, 400, "no file in the upload")
+}
+
+func (s *Server) deleteImport(w http.ResponseWriter, r *http.Request) {
+	if err := s.Engine.DeleteImport(r.PathValue("id")); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// longUpload lifts the server's short read timeout for big uploads.
+func longUpload(w http.ResponseWriter) {
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(time.Now().Add(6 * time.Hour))
+	_ = rc.SetWriteDeadline(time.Now().Add(6 * time.Hour))
 }

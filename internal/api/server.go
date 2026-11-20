@@ -69,6 +69,8 @@ func (s *Server) Handler() http.Handler {
 
 	a("GET /api/sites", s.listSites)
 	a("POST /api/sites", s.createSite)
+	a("POST /api/imports", s.uploadImport)
+	a("DELETE /api/imports/{id}", s.deleteImport)
 	a("GET /api/sites/{id}", s.getSite)
 	a("PUT /api/sites/{id}", s.updateSite)
 	a("DELETE /api/sites/{id}", s.deleteSite)

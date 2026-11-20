@@ -12,6 +12,12 @@ site.
 - **One-click WordPress.** Enter a domain and Berth creates the site, its
   database, installs WordPress, sets pretty permalinks and shows the admin
   password once.
+- **Move sites in.** When creating a site, upload its files (`.zip`, `.tar`,
+  `.tar.gz`, including cPanel or Plesk account backups) and its database dump
+  (`.sql` or `.sql.gz`). Berth finds the web root inside the archive, imports
+  the dump as the site's own database user (DEFINER clauses and MySQL 8
+  collations are fixed on the way), and for WordPress points `wp-config.php` at
+  the new database and rewrites the old address to the new domain.
 - **PHP + database** and **PHP** sites for everything else, with a document root
   in a subfolder (Laravel, Bedrock) and pretty URLs through `index.php` when you
   want them.
@@ -142,6 +148,12 @@ request that does not come from a trusted proxy.
 /var/log/berth/<name>/        nginx access and error logs
 /var/backups/berth/<name>/    backups
 ```
+
+Moving a site from another host? Turn on **Move an existing site here** on the
+New site page instead of copying files by hand. Uploads wait in
+`/var/lib/berth/imports/` and are deleted once imported (or after two days if
+unused). Behind Cloudflare, an upload through the proxy is limited to 100 MB;
+use Berth's LAN address for bigger sites.
 
 Copied files in as root? Press **Fix permissions** on the site page. To bring in
 a backup from elsewhere, copy it into `/var/backups/berth/<name>/` and restore it
