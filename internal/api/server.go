@@ -118,6 +118,7 @@ func (s *Server) Handler() http.Handler {
 	a("POST /api/system/php-updates/apply", s.applyPHPUpdates)
 	a("POST /api/system/apply", s.reapply)
 	a("POST /api/update", s.startUpdate)
+	a("POST /api/update/check", s.checkUpdate)
 
 	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "no such endpoint")

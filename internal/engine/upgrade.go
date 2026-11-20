@@ -34,10 +34,11 @@ type upgradeState struct {
 
 // UpdateInfo describes the running and latest versions.
 type UpdateInfo struct {
-	Current    string `json:"current"`
-	Latest     string `json:"latest"`
-	LatestURL  string `json:"latest_url"`
-	CheckError string `json:"check_error,omitempty"`
+	Current    string    `json:"current"`
+	Latest     string    `json:"latest"`
+	LatestURL  string    `json:"latest_url"`
+	CheckError string    `json:"check_error,omitempty"`
+	Checked    time.Time `json:"checked"`
 }
 
 // CheckUpdate returns the newest release (cached for ten minutes).
@@ -49,7 +50,7 @@ func (e *Engine) CheckUpdate(ctx context.Context, force bool) UpdateInfo {
 		u.latest, u.latestURL, u.err = latestRelease(ctx, e.Cfg.UpdateRepo)
 		u.at = time.Now()
 	}
-	info := UpdateInfo{Current: e.Version, Latest: u.latest, LatestURL: u.latestURL}
+	info := UpdateInfo{Current: e.Version, Latest: u.latest, LatestURL: u.latestURL, Checked: u.at}
 	if u.err != nil {
 		info.CheckError = u.err.Error()
 	}
@@ -68,7 +69,12 @@ func latestRelease(ctx context.Context, repo string) (string, string, error) {
 		return "", "", err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+	switch {
+	case resp.StatusCode == 404:
+		return "", "", fmt.Errorf("no published release found for %s (the repository must be public and have a release)", repo)
+	case (resp.StatusCode == 403 || resp.StatusCode == 429) && resp.Header.Get("X-RateLimit-Remaining") == "0":
+		return "", "", errors.New("GitHub's rate limit for this address is used up; try again within the hour")
+	case resp.StatusCode != 200:
 		return "", "", fmt.Errorf("GitHub returned HTTP %d", resp.StatusCode)
 	}
 	var r struct {
