@@ -198,6 +198,19 @@ func Vhost(p Paths, st model.Settings, s model.Site) string {
 		w("}")
 		return b.String()
 	}
+	if c := strings.TrimSpace(s.NginxCustom); c != "" {
+		w("")
+		w("    # Custom directives, edited on the site's Settings tab. They come")
+		w("    # first, so their regex locations are checked before Berth's.")
+		for _, l := range strings.Split(strings.ReplaceAll(c, "\r\n", "\n"), "\n") {
+			if strings.TrimSpace(l) == "" {
+				w("")
+			} else {
+				w("    %s", strings.TrimRight(l, " \t"))
+			}
+		}
+		w("    # End of custom directives.")
+	}
 	w("")
 	w("    location ~ /\\.(?!well-known) {")
 	w("        deny all;")

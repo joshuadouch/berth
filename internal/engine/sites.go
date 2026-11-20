@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/joshuadouch/berth/internal/model"
+	"github.com/joshuadouch/berth/internal/render"
 )
 
 // CreateRequest is what the New site form sends.
@@ -353,4 +354,45 @@ func (e *Engine) DeleteSite(ctx context.Context, name string, finalBackup bool, 
 		}
 		return e.Store.DeleteSite(ctx, s.Name)
 	})
+}
+
+// SiteNginx returns the site's generated nginx config and its custom part.
+func (e *Engine) SiteNginx(ctx context.Context, s model.Site) (string, error) {
+	st, err := e.Store.Settings(ctx)
+	if err != nil {
+		return "", err
+	}
+	return render.Vhost(e.Paths(), st, s), nil
+}
+
+// SetNginxCustom saves a site's custom nginx directives and applies them.
+// nginx -t must accept the result, or nothing changes.
+func (e *Engine) SetNginxCustom(ctx context.Context, name, custom, author string) (model.Site, error) {
+	unlock := e.lockSite(name)
+	defer unlock()
+	cur, err := e.Store.Site(ctx, name)
+	if err != nil {
+		return cur, err
+	}
+	if len(custom) > 64<<10 {
+		return cur, errors.New("custom nginx config is limited to 64 KB")
+	}
+	if strings.Count(custom, "{") != strings.Count(custom, "}") {
+		return cur, errors.New("the { and } braces do not match")
+	}
+	next := cur
+	next.NginxCustom = strings.TrimSpace(custom)
+	if next.NginxCustom == cur.NginxCustom {
+		return cur, nil
+	}
+	if err := e.Store.SaveSite(ctx, next); err != nil {
+		return cur, err
+	}
+	if err := e.Apply(ctx); err != nil {
+		_ = e.Store.SaveSite(ctx, cur)
+		_ = e.Apply(ctx)
+		return cur, err
+	}
+	e.Store.AddEvent(ctx, "info", "site", name, author+" changed the custom nginx config of "+next.Domain)
+	return next, nil
 }

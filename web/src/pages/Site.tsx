@@ -216,7 +216,43 @@ function SettingsTab({ s, sftp, onSaved }: { s: Site; sftp: boolean; onSaved: (j
         <button className="btn p" disabled={busy || busySite} onClick={save}>Save changes</button>
         <button className="btn danger" disabled={busySite} onClick={() => setDelOpen(true)}><Icon name="trash" size={13} />Delete site</button>
       </div>
+      <NginxCard s={s} />
       {delOpen && <DeleteModal s={s} onClose={() => setDelOpen(false)} />}
+    </div>
+  );
+}
+
+function NginxCard({ s }: { s: Site }) {
+  const d = useLoad(() => get<{ config: string; custom: string }>(`/sites/${s.id}/nginx`), [s.id]);
+  const [custom, setCustom] = useState<string | null>(null);
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<unknown>(null);
+  const toast = useToast();
+  const value = custom ?? d.data?.custom ?? '';
+  const changed = custom !== null && custom !== (d.data?.custom ?? '');
+  const save = () => {
+    setBusy(true); setErr(null);
+    put<{ config: string; custom: string }>(`/sites/${s.id}/nginx`, { custom: value })
+      .then((r) => { d.setData(r); setCustom(null); toast('nginx config applied'); })
+      .catch(setErr).finally(() => setBusy(false));
+  };
+  return (
+    <div className="card" style={{ marginTop: 24 }}>
+      <div className="ch"><h3>nginx config</h3><button className="btn s ghost" onClick={() => setShow(!show)}>{show ? 'Hide' : 'Show'} full config</button></div>
+      <div className="cb">
+        <p className="muted" style={{ marginBottom: 10, fontSize: 13 }}>Berth writes this site's server block. Add your own directives here, such as redirects, headers or extra <span className="mono">location</span> blocks. They go inside the server block, before Berth's locations, and survive every change Berth makes. nginx checks them before they go live; if it rejects them, nothing changes.</p>
+        {d.error ? <ErrorBox error={d.error} /> : null}
+        <textarea className="editor" style={{ minHeight: 180 }} spellCheck={false} value={value} placeholder={'location = /old-page {\n    return 301 /new-page;\n}\nadd_header X-Frame-Options SAMEORIGIN always;'}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (changed) save(); } }} />
+        <ErrorBox error={err} />
+        <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
+          <button className="btn p" disabled={!changed || busy} onClick={save}>{busy ? 'Checking…' : 'Check and apply'}</button>
+          {changed && <button className="btn ghost" onClick={() => { setCustom(null); setErr(null); }}>Discard</button>}
+        </div>
+        {show && d.data && <pre className="mono" style={{ marginTop: 16, fontSize: 12, whiteSpace: 'pre', overflowX: 'auto', background: 'var(--bg)', padding: 12, borderRadius: 8, maxHeight: 520 }}>{d.data.config}</pre>}
+      </div>
     </div>
   );
 }

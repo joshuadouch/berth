@@ -117,7 +117,9 @@ type Site struct {
 	Status      string      `json:"status"`
 	StatusError string      `json:"status_error"`
 	Notes       string      `json:"notes"`
-	CreatedAt   time.Time   `json:"created_at"`
+	// NginxCustom is extra nginx directives for the site's server block.
+	NginxCustom string    `json:"nginx_custom,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // User is the Linux user that owns the site's files and runs its PHP.

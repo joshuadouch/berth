@@ -14,7 +14,8 @@ func testSites(t *testing.T) []model.Site {
 	sites := []model.Site{
 		{Name: "blog", Type: model.TypeWordPress, Domain: "blog.example.com", Aliases: []string{"www.blog.example.com"}, RedirectAliases: true, PHPVersion: "8.3", HTTPS: true, Enabled: true},
 		{Name: "app", Type: model.TypePHPDB, Domain: "app.example.com", PHPVersion: "8.2", DocRoot: "web", FrontController: true, Enabled: true},
-		{Name: "static", Type: model.TypePHP, Domain: "static.example.com", PHPVersion: "8.3", Enabled: true},
+		{Name: "static", Type: model.TypePHP, Domain: "static.example.com", PHPVersion: "8.3", Enabled: true,
+			NginxCustom: "location = /old {\r\n  return 301 /new;\r\n}\n\nadd_header X-Test yes;"},
 		{Name: "off", Type: model.TypePHP, Domain: "off.example.com", PHPVersion: "8.3", Enabled: false},
 	}
 	for i := range sites {
@@ -87,6 +88,17 @@ func TestRender(t *testing.T) {
 }
 
 // TestNginxAccepts runs nginx -t on the rendered config when nginx is installed.
+func TestCustomNginx(t *testing.T) {
+	sites := testSites(t)
+	v := Vhost(paths(t.TempDir()), model.Settings{}, sites[2])
+	if !strings.Contains(v, "    location = /old {\n      return 301 /new;\n    }\n\n    add_header X-Test yes;\n") {
+		t.Fatalf("custom block missing:\n%s", v)
+	}
+	if strings.Index(v, "location = /old") > strings.Index(v, "location / {") {
+		t.Fatal("custom block should come before Berth's locations")
+	}
+}
+
 func TestNginxAccepts(t *testing.T) {
 	bin, err := exec.LookPath("nginx")
 	if err != nil {
