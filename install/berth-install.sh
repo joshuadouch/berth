@@ -84,11 +84,21 @@ fi
 if [[ $UPGRADE == 0 ]] || ! ls /usr/sbin/php-fpm* >/dev/null 2>&1; then
   msg_info "Installing PHP ${PHPV}"
   apt-get install -y -q "php${PHPV}-fpm" "php${PHPV}-cli" "php${PHPV}-mysql" "php${PHPV}-curl" "php${PHPV}-gd" \
-    "php${PHPV}-intl" "php${PHPV}-mbstring" "php${PHPV}-xml" "php${PHPV}-zip" "php${PHPV}-bcmath" "php${PHPV}-soap"
+    "php${PHPV}-intl" "php${PHPV}-mbstring" "php${PHPV}-xml" "php${PHPV}-zip" "php${PHPV}-bcmath" "php${PHPV}-soap" "php${PHPV}-gmp"
   apt-get install -y -q "php${PHPV}-imagick" "php${PHPV}-opcache" || true
   systemctl enable -q --now "php${PHPV}-fpm"
   msg_ok "Installed PHP ${PHPV}"
 fi
+
+# Extensions added to Berth's list later (gmp, for apps such as Invoice
+# Ninja) go onto PHP versions installed before.
+for FPM in /usr/sbin/php-fpm[0-9]*; do
+  [[ -e "$FPM" ]] || continue
+  V="${FPM#/usr/sbin/php-fpm}"
+  if ! dpkg -s "php${V}-gmp" >/dev/null 2>&1; then
+    apt-get install -y -q "php${V}-gmp" >/dev/null 2>&1 && systemctl restart "php${V}-fpm" || true
+  fi
+done
 
 msg_info "Installing WP-CLI"
 WP_TMP="$(mktemp)"
