@@ -84,7 +84,7 @@ func Default() *Config {
 	c.PHP.ReloadCmd = "systemctl reload-or-restart php{v}-fpm"
 	c.PHP.CLI = "/usr/bin/php{v}"
 	c.PHP.Socket = "/run/php/berth-{site}.sock"
-	c.PHP.InstallCmd = "apt-get update -q && apt-get install -y -q php{v}-fpm php{v}-cli php{v}-mysql php{v}-curl php{v}-gd php{v}-intl php{v}-mbstring php{v}-xml php{v}-zip php{v}-bcmath php{v}-soap && (apt-get install -y -q php{v}-imagick php{v}-opcache || true) && systemctl enable --now php{v}-fpm"
+	c.PHP.InstallCmd = "apt-get update -q && apt-get install -y -q php{v}-fpm php{v}-cli php{v}-mysql php{v}-curl php{v}-gd php{v}-intl php{v}-mbstring php{v}-xml php{v}-zip php{v}-bcmath php{v}-soap php{v}-gmp && (apt-get install -y -q php{v}-imagick php{v}-opcache || true) && systemctl enable --now php{v}-fpm"
 	c.MySQL.Client = "/usr/bin/mariadb"
 	c.MySQL.Dump = "/usr/bin/mariadb-dump"
 	c.MySQL.Socket = "/run/mysqld/mysqld.sock"
