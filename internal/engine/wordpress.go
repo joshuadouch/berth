@@ -211,7 +211,8 @@ func (e *Engine) WPReplaceURL(ctx context.Context, s model.Site, oldURL string, 
 		return nil
 	}
 	logf("Replacing %s with %s in the database", oldURL, newURL)
-	out, err := e.wp(ctx, s, "", "search-replace", oldURL, newURL, "--all-tables-with-prefix", "--skip-columns=guid", "--precise")
+	out, err := e.wp(ctx, s, "", "search-replace", oldURL, newURL, "--all-tables-with-prefix", "--skip-columns=guid", "--precise",
+		"--skip-plugins", "--skip-themes")
 	if err != nil {
 		return err
 	}
@@ -219,7 +220,7 @@ func (e *Engine) WPReplaceURL(ctx context.Context, s model.Site, oldURL string, 
 		logf("  %s", lines[len(lines)-1])
 	}
 	for _, opt := range []string{"home", "siteurl"} {
-		if _, err := e.wp(ctx, s, "", "option", "update", opt, newURL); err != nil {
+		if _, err := e.wp(ctx, s, "", "option", "update", opt, newURL, "--skip-plugins", "--skip-themes"); err != nil {
 			return err
 		}
 	}

@@ -317,3 +317,4 @@ a.mon-tile:hover{border-color:var(--line2)}
 .tables div.on{background:rgba(45,212,191,.08);border-left-color:#2dd4bf}
 .sqlbox{width:100%;min-height:90px;font:12.5px/1.5 ui-monospace,Menlo,monospace;background:#0a0f1a;color:#d6e2f5;border:1px solid var(--line);border-radius:8px;padding:10px}
 @media (max-width:760px){.dbsplit{grid-template-columns:1fr!important}.hide-sm{display:none}}
+.upslot{display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 10px;border:1px dashed var(--line);border-radius:8px;font-size:13px}

@@ -1,6 +1,6 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { exposureLabel, get, HalyardInfo, Job, nameFromDomain, post, Settings, Site, SiteType, vipLabel } from '../api';
+import { bytes, del, exposureLabel, get, HalyardInfo, Job, nameFromDomain, post, Settings, Site, SiteType, upload, UploadInfo, vipLabel } from '../api';
 import { Chips, Copyable, ErrorBox, Field, Icon, JobView, Loading, Toggle, useLoad } from '../ui';
 
 const types: { v: SiteType; icon: string; title: string; text: string }[] = [
@@ -39,6 +39,10 @@ export default function NewSite() {
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<Result | null>(null);
   const [job, setJob] = useState<Job | null>(null);
+  const [imp, setImp] = useState(false);
+  const [impFiles, setImpFiles] = useState<UploadInfo | null>(null);
+  const [impDB, setImpDB] = useState<UploadInfo | null>(null);
+  const [uploading, setUploading] = useState(0);
 
   useEffect(() => {
     const s = cfg.data?.settings;
@@ -55,6 +59,9 @@ export default function NewSite() {
     if (!nameTouched) setName(domain ? nameFromDomain(domain) : '');
   }, [domain, nameTouched]);
 
+  const hasDB = type !== 'php';
+  const importing = imp && (!!impFiles || (hasDB && !!impDB));
+  const importReady = !imp || (type === 'wordpress' ? !!impFiles && !!impDB : importing);
   const halyardReady = !!hal.data?.configured && !hal.data.error && hal.data.pool_ok;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -66,7 +73,8 @@ export default function NewSite() {
         doc_root: docRoot, front_controller: front, backups, sftp: { enabled: false, keys: [] },
       };
       if (halyardReady && publish) body.halyard = { enabled: true, vip_id: vip, exposure, no_dns: dns === false };
-      if (type === 'wordpress') body.wp = { title: title || domain.trim(), admin_user: adminUser, admin_email: adminEmail, locale };
+      if (type === 'wordpress') body.wp = importing ? {} : { title: title || domain.trim(), admin_user: adminUser, admin_email: adminEmail, locale };
+      if (importing) body.import = { files: impFiles?.id ?? '', files_name: impFiles?.name ?? '', db: hasDB ? impDB?.id ?? '' : '', db_name: hasDB ? impDB?.name ?? '' : '' };
       setRes(await post<Result>('/sites', body));
     } catch (e) { setErr(e); } finally { setBusy(false); }
   };
@@ -77,7 +85,7 @@ export default function NewSite() {
     const s = res.site;
     return (
       <>
-        <div className="head"><div><h1>{s.domain}</h1><div className="sub">Creating your {types.find((t) => t.v === s.type)?.title} site.</div></div></div>
+        <div className="head"><div><h1>{s.domain}</h1><div className="sub">{s.import ? 'Moving your site in.' : <>Creating your {types.find((t) => t.v === s.type)?.title} site.</>}</div></div></div>
         <div className="row" style={{ alignItems: 'flex-start' }}>
           <div className="card" style={{ flex: 3, minWidth: 0 }}><div className="cb"><JobView id={res.job_id} onDone={setJob} /></div></div>
           <div className="stack" style={{ flex: 2, minWidth: 0 }}>
@@ -85,6 +93,10 @@ export default function NewSite() {
               <div className="warnbox">Save this password now. Berth does not keep it; you can set a new one from the site page later.</div>
               <Field label="Username"><Copyable value={s.wp?.admin_user ?? ''} /></Field>
               <Field label="Password"><Copyable value={res.admin_password} /></Field>
+              <Field label="Log in at"><Copyable value={(s.https ? 'https://' : 'http://') + s.domain + '/wp-admin/'} /></Field>
+            </div></div>}
+            {s.import && s.type === 'wordpress' && <div className="card"><div className="ch"><h3>WordPress login</h3></div><div className="cb">
+              <p>Log in with the accounts you already had. Berth pointed wp-config.php at the new database and changed the old address to <b>{s.domain}</b>.</p>
               <Field label="Log in at"><Copyable value={(s.https ? 'https://' : 'http://') + s.domain + '/wp-admin/'} /></Field>
             </div></div>}
             {job && <div className="card"><div className="cb">
@@ -111,6 +123,20 @@ export default function NewSite() {
           ))}
         </div>
         <ErrorBox error={err} />
+        <div className="card" style={{ marginBottom: 16 }}><div className="cb">
+          <Toggle on={imp} onChange={setImp} label="Move an existing site here" help="Upload the site's files and its database dump. Berth puts them in place, imports the database and, for WordPress, repoints wp-config.php and the site address." />
+          {imp && <>
+            <div className="grid2" style={{ marginTop: 4 }}>
+              <UploadSlot label="Site files" accept=".zip,.tar,.tar.gz,.tgz" hint="A .zip, .tar or .tar.gz. A cPanel or Plesk backup works; Berth finds public_html inside it."
+                value={impFiles} onChange={setImpFiles} onBusy={(b) => setUploading((n) => n + (b ? 1 : -1))} />
+              {hasDB ? <UploadSlot label="Database dump" accept=".sql,.gz" hint="A .sql or .sql.gz from mysqldump, phpMyAdmin or a host's backup tool."
+                value={impDB} onChange={setImpDB} onBusy={(b) => setUploading((n) => n + (b ? 1 : -1))} />
+                : <div className="help" style={{ alignSelf: 'center' }}>A PHP site has no database. Choose PHP + database to bring one.</div>}
+            </div>
+            {type === 'wordpress' && (!impFiles || !impDB) && <small className="help">WordPress needs both the files and the database.</small>}
+            {type === 'wordpress' && <small className="help">Leave wp-config.php in the files; Berth updates its database settings. Logins and passwords stay as they were.</small>}
+          </>}
+        </div></div>
         <div className="card"><div className="cb">
           <div className="grid2">
             <Field label="Domain"><input className="input" autoFocus placeholder="blog.example.com" value={domain} onChange={(e) => setDomain(e.target.value.trim().toLowerCase())} /></Field>
@@ -145,7 +171,7 @@ export default function NewSite() {
             </div>}
             {publish && <Toggle on={dns !== false} onChange={setDns} label="Manage DNS in Cloudflare" help={exposure === 'lan' ? 'A plain record pointing at the VIP.' : 'A proxied (orange cloud) record for each domain.'} />}
           </>}
-          {type === 'wordpress' && <>
+          {type === 'wordpress' && !imp && <>
             <div className="navlabel" style={{ padding: '6px 0 12px' }}>WordPress</div>
             <Field label="Site title"><input className="input" placeholder={domain || 'My site'} value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
             <div className="grid3">
@@ -166,9 +192,38 @@ export default function NewSite() {
           </>}
         </div></div>
         <div style={{ marginTop: 16 }}>
-          <button className="btn p" disabled={busy || !domain || !php}><Icon name={type === 'wordpress' ? 'wp' : 'plus'} />{type === 'wordpress' ? 'Create WordPress site' : 'Create site'}</button>
+          <button className="btn p" disabled={busy || !domain || !php || uploading > 0 || !importReady}><Icon name={type === 'wordpress' ? 'wp' : 'plus'} />{imp ? 'Create site and import' : type === 'wordpress' ? 'Create WordPress site' : 'Create site'}</button>
+          {uploading > 0 && <span className="dim" style={{ marginLeft: 10, fontSize: 13 }}>Waiting for the upload to finish…</span>}
         </div>
       </form>
     </>
+  );
+}
+
+function UploadSlot({ label, hint, accept, value, onChange, onBusy }: { label: string; hint: string; accept: string; value: UploadInfo | null; onChange: (v: UploadInfo | null) => void; onBusy: (b: boolean) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [pct, setPct] = useState<number | null>(null);
+  const [err, setErr] = useState<unknown>(null);
+  const pick = async (f?: File) => {
+    if (!f) return;
+    setErr(null); setPct(0); onBusy(true);
+    try {
+      const info = await upload<UploadInfo>('/imports', [{ file: f, name: f.name }], setPct);
+      if (value) del('/imports/' + value.id).catch(() => undefined);
+      onChange(info);
+    } catch (e) { setErr(e); } finally { setPct(null); onBusy(false); }
+  };
+  const remove = () => { if (value) del('/imports/' + value.id).catch(() => undefined); onChange(null); };
+  return (
+    <Field label={label} help={hint}>
+      <div className="upslot" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pick(e.dataTransfer.files[0]); }}>
+        {pct !== null ? <div style={{ flex: 1 }}><div className="bar"><i style={{ width: pct + '%', background: '#2dd4bf' }} /></div><small className="help">Uploading… {pct}%</small></div>
+          : value ? <><Icon name={value.kind === 'db' ? 'db' : 'zip'} size={15} /><span className="mono" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{value.name}</span><span className="dim">{bytes(value.size)}</span>
+            <button type="button" className="btn s ghost" title="Remove" onClick={remove}><Icon name="trash" size={13} /></button></>
+          : <><button type="button" className="btn s" onClick={() => input.current?.click()}><Icon name="up" size={13} />Choose file</button><span className="dim">or drop it here</span></>}
+        <input ref={input} type="file" hidden accept={accept} onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
+      </div>
+      <ErrorBox error={err} />
+    </Field>
   );
 }

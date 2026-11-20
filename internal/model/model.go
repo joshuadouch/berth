@@ -79,6 +79,14 @@ type HalyardLink struct {
 	Error string `json:"error"`
 }
 
+// SiteImport names the staged uploads a new site is built from.
+type SiteImport struct {
+	Files     string `json:"files"` // upload id of a .zip/.tar(.gz)
+	FilesName string `json:"files_name"`
+	DB        string `json:"db"` // upload id of a .sql(.gz)
+	DBName    string `json:"db_name"`
+}
+
 // Site is one website.
 type Site struct {
 	ID         string   `json:"id"`   // equal to Name
@@ -104,6 +112,8 @@ type Site struct {
 	WP          *WordPress  `json:"wp,omitempty"`
 	SFTP        SFTP        `json:"sftp"`
 	Halyard     HalyardLink `json:"halyard"`
+	// Import is the uploaded site a new site is created from.
+	Import      *SiteImport `json:"import,omitempty"`
 	Status      string      `json:"status"`
 	StatusError string      `json:"status_error"`
 	Notes       string      `json:"notes"`

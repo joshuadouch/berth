@@ -88,6 +88,7 @@ func (e *Engine) Loop(ctx context.Context) {
 			if now.Sub(lastUsage) >= 30*time.Minute {
 				lastUsage = now
 				go e.measureUsage(ctx)
+				go e.cleanImports(ctx)
 			}
 			e.maybeNightly(ctx, now)
 			if now.Sub(lastPHP) >= 24*time.Hour && !e.Cfg.DryRun {
