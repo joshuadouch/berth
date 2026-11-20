@@ -124,6 +124,14 @@ not covered by an existing certificate (a wildcard, say), Berth asks Halyard to
 issue one. Deleting a site, or pressing **Remove from Halyard**, deletes its host
 and the certificate Berth requested once nothing else uses it.
 
+Moving a site from another server that Halyard already fronts? If a Halyard
+host serves exactly the site's domains (the main one and its other domains, in
+any order), Berth takes that host over: it points the default route at Berth's
+pool and keeps the host's VIP, exposure, DNS, certificate and other routes, so
+the switch is just the backend. If a host shares only some of the domains, or
+serves others too, publishing stops with an error naming them, so another site
+is never moved by accident.
+
 ### Off-site backups
 
 In **Settings → Off-site backups (S3)**, enter the endpoint, region, bucket and

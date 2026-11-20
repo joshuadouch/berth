@@ -149,6 +149,12 @@ func (c *Client) Certs(ctx context.Context) ([]Cert, error) {
 // survive an update.
 type Host map[string]any
 
+// Hosts lists every host.
+func (c *Client) Hosts(ctx context.Context) ([]Host, error) {
+	var v []Host
+	return v, c.Do(ctx, "GET", "/api/hosts", nil, &v)
+}
+
 // GetHost loads a host.
 func (c *Client) GetHost(ctx context.Context, id string) (Host, error) {
 	var h Host

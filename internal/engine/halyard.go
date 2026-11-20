@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 
 	"github.com/joshuadouch/berth/internal/halyard"
@@ -143,6 +144,28 @@ func (e *Engine) pushHalyard(ctx context.Context, s *model.Site, logf Logf) erro
 		}
 	}
 	names := s.Hostnames()
+	if isNew {
+		h, err := findExistingHost(ctx, c, names)
+		if err != nil {
+			return err
+		}
+		if h != nil {
+			// Take over the host as it is: only the backend changes, so the
+			// VIP, exposure, DNS and certificate stay as they were.
+			host, isNew = h, false
+			link.HostID, _ = h["id"].(string)
+			if v, _ := h["vip_id"].(string); v != "" {
+				link.VIPID = v
+			}
+			if x, _ := h["exposure"].(string); x != "" {
+				link.Exposure = x
+			}
+			if dns, ok := h["publish_dns"].(bool); ok {
+				link.NoDNS = !dns
+			}
+			logf("Halyard already has a host for %s; switching it to this server", strings.Join(names, ", "))
+		}
+	}
 	host["hostnames"] = names
 	host["vip_id"] = link.VIPID
 	host["mode"] = "http"
@@ -220,6 +243,55 @@ func (e *Engine) pushHalyard(ctx context.Context, s *model.Site, logf Logf) erro
 		link.HostID = id
 	}
 	return nil
+}
+
+// findExistingHost returns the Halyard host that serves exactly names, or nil
+// when no host serves any of them. A host that shares only some names, or has
+// others too, is an error: taking it over would move or drop sites that are
+// not this one.
+func findExistingHost(ctx context.Context, c *halyard.Client, names []string) (halyard.Host, error) {
+	hosts, err := c.Hosts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	want := map[string]bool{}
+	for _, n := range names {
+		want[strings.ToLower(n)] = true
+	}
+	var match halyard.Host
+	for _, h := range hosts {
+		list, _ := h["hostnames"].([]any)
+		var shared, extra []string
+		for _, v := range list {
+			n, _ := v.(string)
+			if want[strings.ToLower(n)] {
+				shared = append(shared, n)
+			} else {
+				extra = append(extra, n)
+			}
+		}
+		if len(shared) == 0 {
+			continue
+		}
+		hostName := strings.Join(shared, ", ")
+		if len(extra) > 0 {
+			return nil, fmt.Errorf("Halyard host %s also serves %s; remove those names from it or add them to this site, then publish again", hostName, strings.Join(extra, ", "))
+		}
+		if len(shared) < len(want) {
+			var missing []string
+			for _, n := range names {
+				if !slices.ContainsFunc(shared, func(x string) bool { return strings.EqualFold(x, n) }) {
+					missing = append(missing, n)
+				}
+			}
+			return nil, fmt.Errorf("Halyard host %s does not serve %s; add those names to it or remove them from this site, then publish again", hostName, strings.Join(missing, ", "))
+		}
+		if match != nil {
+			return nil, fmt.Errorf("more than one Halyard host serves %s", strings.Join(names, ", "))
+		}
+		match = h
+	}
+	return match, nil
 }
 
 // withDefaultRoute keeps any extra routes and points the default route at pool.
