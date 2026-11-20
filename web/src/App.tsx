@@ -37,6 +37,15 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     return () => window.removeEventListener('keydown', h);
   }, [menu]);
   useResponsiveTables();
+  const [newer, setNewer] = useState('');
+  useEffect(() => {
+    const check = () => get<{ update: { current: string; latest: string } }>('/system')
+      .then((r) => setNewer(r.update.latest && r.update.latest !== r.update.current && r.update.current !== 'dev' ? r.update.latest : ''))
+      .catch(() => undefined);
+    check();
+    const t = window.setInterval(check, 30 * 60 * 1000);
+    return () => window.clearInterval(t);
+  }, [loc.pathname === '/system']);
   return (
     <>
       {menu && <div className="scrim" onClick={() => setMenu(false)} />}
@@ -47,6 +56,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             ? <div key={n[0]} className="navlabel">{n[0]}</div>
             : <NavLink key={n[0]} to={n[0]} end={n[0] === '/'} className={({ isActive }) => (isActive ? 'on' : '')}>
                 <Icon name={n[1]} />{n[2]}
+                {n[0] === '/system' && newer && <span className="badge w" style={{ marginLeft: 'auto', fontSize: 10 }} title={'Berth ' + newer + ' is available'}>Update</span>}
               </NavLink>)}
         </nav>
         <div className="foot">
