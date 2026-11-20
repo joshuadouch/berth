@@ -16,6 +16,7 @@ import (
 type fakeHalyard struct {
 	mu    sync.Mutex
 	hosts map[string]map[string]any
+	pool  map[string]any
 	certs map[string][]string
 	n     int
 }
@@ -32,6 +33,12 @@ func (f *fakeHalyard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case path == "/api/vips":
 		send([]map[string]any{{"id": "v1", "address": "10.0.0.10/24"}})
+	case path == "/api/pools/p1" && f.pool != nil:
+		if r.Method == "PUT" {
+			f.pool = map[string]any{}
+			_ = json.NewDecoder(r.Body).Decode(&f.pool)
+		}
+		send(f.pool)
 	case path == "/api/pools" && r.Method == "GET":
 		send([]map[string]any{{"id": "p1", "name": "berth"}})
 	case path == "/api/certs" && r.Method == "GET":
@@ -256,5 +263,27 @@ func TestHalyardTakeover(t *testing.T) {
 	}
 	if h["vip_id"] != "v9" || h["exposure"] != "tunnel" || h["publish_dns"] != false || h["hsts"] != true || s.Halyard.CertID != "" || len(f.certs) != 1 {
 		t.Fatalf("settings not kept: %+v %+v %v", s.Halyard, h, f.certs)
+	}
+}
+
+func TestHalyardFixesHealthHost(t *testing.T) {
+	e := testEngine(t)
+	ctx := context.Background()
+	f := &fakeHalyard{hosts: map[string]map[string]any{}, certs: map[string][]string{},
+		pool: map[string]any{"id": "p1", "name": "berth", "health": map[string]any{"enabled": true, "type": "http", "path": "/berth-health", "host_header": ""}}}
+	srv := httptest.NewTLSServer(f)
+	defer srv.Close()
+	e.HalyardHTTP = srv.Client()
+	st, _ := e.Store.Settings(ctx)
+	st.Halyard = model.HalyardSettings{URL: srv.URL, Token: "hlt_test", PoolID: "p1"}
+	_ = e.Store.SetSettings(ctx, st)
+	if info := e.HalyardInfo(ctx); !info.PoolOK {
+		t.Fatalf("%+v", info)
+	}
+	if h := f.pool["health"].(map[string]any); h["host_header"] != "berth-health" || f.pool["name"] != "berth" {
+		t.Fatalf("pool %+v", f.pool)
+	}
+	if _, ok := f.pool["id"]; ok {
+		t.Fatal("id sent in PUT")
 	}
 }
