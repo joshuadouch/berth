@@ -3,7 +3,7 @@ import { exposureLabel, get, HalyardInfo, post, put, Settings as S, vipLabel } f
 import { Badge, Chips, ErrorBox, Field, Loading, Toggle, useLoad, useToast } from '../ui';
 import type { Me } from '../App';
 
-interface SettingsView { settings: S; halyard_token_set: boolean; installed_php: string[]; php_versions: string[] }
+interface SettingsView { settings: S; halyard_token_set: boolean; s3_secret_set: boolean; s3_error: string; installed_php: string[]; php_versions: string[] }
 
 export default function Settings({ me }: { me: Me }) {
   const { data, error, reload } = useLoad(() => get<SettingsView>('/settings'));
@@ -49,6 +49,7 @@ export default function Settings({ me }: { me: Me }) {
             </div>
             <Field label="Folder" help="Can be a NAS share mounted into the container."><input className="input mono" value={f.backup_dir} onChange={(e) => set({ backup_dir: e.target.value })} /></Field>
           </div></div>
+          <S3Card f={f} set={set} secretSet={data.s3_secret_set} remoteError={data.s3_error} />
         </div>
         <div className="stack">
           <div className="card"><div className="ch"><h3>Cloudflare Access</h3>{f.access_team && f.access_aud ? <Badge kind="g">On</Badge> : <Badge kind="n">Off</Badge>}</div><div className="cb">
@@ -145,15 +146,53 @@ function HalyardCard({ f, set, tokenSet, saved, onSaved }: { f: S; set: (p: Part
           <Field label="Default VIP"><select className="input" value={h.vip_id} onChange={(e) => seth({ vip_id: e.target.value })}>
             <option value="">Choose a VIP</option>
             {info.vips.map((v) => <option key={v.id} value={v.id}>{vipLabel(v)}</option>)}</select></Field>
-          <Field label="Default exposure"><select className="input" value={h.exposure || 'lan'} onChange={(e) => seth({ exposure: e.target.value })}>
+          <Field label="Default exposure"><select className="input" value={h.exposure || 'public'} onChange={(e) => seth({ exposure: e.target.value })}>
             {Object.entries(exposureLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
         </div>
+        <Toggle on={!h.no_dns} onChange={(v) => seth({ no_dns: !v })} label="Manage DNS in Cloudflare" help="Halyard creates each site's records. Public and tunnel sites are proxied (orange cloud); LAN sites get a plain record to the VIP." />
+        {!h.no_dns && info.cloudflare && !info.cloudflare.token_set && <div className="warnbox">Halyard has no Cloudflare API token yet, so it cannot create DNS records or certificates. Add one on Halyard's Cloudflare page.</div>}
+        {!h.no_dns && info.cloudflare?.token_set && h.exposure === 'public' && !info.cloudflare.public_ip && <div className="warnbox">Set your public IP on Halyard's Cloudflare page; proxied records for public sites point at it.</div>}
+        {!h.no_dns && info.cloudflare?.token_set && h.exposure === 'tunnel' && !info.cloudflare.tunnel_id && <div className="warnbox">Halyard has no Cloudflare Tunnel yet. Create one on its Cloudflare page.</div>}
         <Toggle on={h.auto_cert} onChange={(v) => seth({ auto_cert: v })} label="Request a certificate for HTTPS sites" help="Halyard issues one through Cloudflare DNS unless an existing certificate (a wildcard, say) already covers the site." />
       </>}
       {connected && !info && <Loading />}
       {!connected && <div className="note" style={{ marginBottom: 0 }}>Save the URL and token, then choose the pool and VIP here.</div>}
       <ErrorBox error={err} />
       <div className="note" style={{ marginBottom: 0, marginTop: 12 }}>Add Halyard's node addresses as trusted proxies above too, so sites see visitors' real addresses.</div>
+    </div></div>
+  );
+}
+
+function S3Card({ f, set, secretSet, remoteError }: { f: S; set: (p: Partial<S>) => void; secretSet: boolean; remoteError: string }) {
+  const c = f.s3;
+  const setc = (p: Partial<S['s3']>) => set({ s3: { ...c, ...p } });
+  const [test, setTest] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true); setTest(null);
+    try { await post('/settings/s3/test', { ...c, enabled: true }); setTest({ ok: true, msg: 'Berth could write to and delete from the bucket.' }); }
+    catch (e) { setTest({ ok: false, msg: (e as Error).message }); } finally { setBusy(false); }
+  };
+  return (
+    <div className="card"><div className="ch"><h3>Off-site backups (S3)</h3>{c.enabled ? (remoteError ? <Badge kind="b">Error</Badge> : <Badge kind="g">On</Badge>) : <Badge kind="n">Off</Badge>}</div><div className="cb">
+      <Toggle on={c.enabled} onChange={(v) => setc({ enabled: v })} label="Copy every backup to S3-compatible storage" help="Backblaze B2, Cloudflare R2, Wasabi, AWS S3 or MinIO. Restores and browsing download from there when the local copy is gone." />
+      {c.enabled && remoteError && <div className="err">{remoteError}</div>}
+      <div className="grid2">
+        <Field label="Endpoint" help="B2: the S3 endpoint on the bucket page."><input className="input mono" value={c.endpoint} onChange={(e) => setc({ endpoint: e.target.value })} placeholder="s3.eu-central-003.backblazeb2.com" /></Field>
+        <Field label="Region"><input className="input mono" value={c.region} onChange={(e) => setc({ region: e.target.value })} placeholder="eu-central-003" /></Field>
+        <Field label="Bucket"><input className="input mono" value={c.bucket} onChange={(e) => setc({ bucket: e.target.value })} placeholder="my-backups" /></Field>
+        <Field label="Folder in bucket (optional)"><input className="input mono" value={c.prefix} onChange={(e) => setc({ prefix: e.target.value })} placeholder="berth" /></Field>
+        <Field label="Key ID"><input className="input mono" value={c.access_key} onChange={(e) => setc({ access_key: e.target.value })} /></Field>
+        <Field label="Application key (secret)"><input className="input mono" type="password" value={c.secret_key ?? ''} onChange={(e) => setc({ secret_key: e.target.value })} placeholder={secretSet ? 'saved (leave blank to keep)' : ''} /></Field>
+        <Field label="Keep off-site per site"><input className="input" type="number" min={1} value={c.keep} onChange={(e) => setc({ keep: +e.target.value })} /></Field>
+        <Field label="Keep locally per site" help="0 uses the backup setting above."><input className="input" type="number" min={0} value={c.local_keep} onChange={(e) => setc({ local_keep: +e.target.value })} /></Field>
+      </div>
+      <Toggle on={c.path_style} onChange={(v) => setc({ path_style: v })} label="Path-style URLs" help="Only for MinIO and similar self-hosted storage." />
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <button className="btn" disabled={busy || !c.endpoint || !c.bucket} onClick={run}>{busy ? 'Testing…' : 'Test connection'}</button>
+        {test && <span style={{ fontSize: 12.5, color: test.ok ? '#86efac' : '#fca5a5' }}>{test.msg}</span>}
+      </div>
+      <small className="help">Give the key access to this bucket only. Backups hold database passwords, so keep the bucket private.</small>
     </div></div>
   );
 }

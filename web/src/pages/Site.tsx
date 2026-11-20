@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ago, Backup, bytes, del, exposureLabel, fmtDate, get, HalyardInfo, Job, post, put, Site, SiteDetail, siteURL, typeLabel, vipLabel, WPInfo } from '../api';
+import FilesTab from './Files';
+import DatabaseTab from './Database';
+import { BackupBrowser, RestoreModal, Where } from './BackupTools';
 import { Badge, Chips, Copyable, ErrorBox, Field, Icon, JobBadge, JobView, Loading, Modal, StatusBadge, Toggle, TypeBadge, useLoad, useToast } from '../ui';
 
-const tabs = ['overview', 'settings', 'wordpress', 'backups', 'logs', 'activity'] as const;
+const tabs = ['overview', 'files', 'database', 'wordpress', 'backups', 'logs', 'settings', 'activity'] as const;
 type Tab = typeof tabs[number];
-const tabLabel: Record<Tab, string> = { overview: 'Overview', settings: 'Settings', wordpress: 'WordPress', backups: 'Backups', logs: 'Logs', activity: 'Activity' };
+const tabLabel: Record<Tab, string> = { overview: 'Overview', files: 'Files', database: 'Database', settings: 'Settings', wordpress: 'WordPress', backups: 'Backups', logs: 'Logs', activity: 'Activity' };
 
 export default function SitePage() {
   const { id = '' } = useParams();
@@ -16,7 +19,8 @@ export default function SitePage() {
   const toast = useToast();
   if (!d.data) return d.error ? <ErrorBox error={d.error} /> : <Loading />;
   const s = d.data.site;
-  const visible = tabs.filter((t) => t !== 'wordpress' || s.type === 'wordpress');
+  const ready = s.status === 'active' || s.status === 'error';
+  const visible = tabs.filter((t) => (t !== 'wordpress' || s.type === 'wordpress') && (t !== 'database' || (!!s.db && ready)) && (t !== 'files' || ready));
   const startJob = (p: Promise<{ job_id: number }>, msg?: string) => p.then((r) => { setJob(r.job_id); if (msg) toast(msg); d.reload(); }).catch((e) => toast(e.message, true));
   return (
     <>
@@ -35,6 +39,8 @@ export default function SitePage() {
       <div className="tabs">{visible.map((t) => <span key={t} className={t === tab ? 'on' : ''} onClick={() => setSp(t === 'overview' ? {} : { tab: t })}>{tabLabel[t]}</span>)}</div>
       {tab === 'overview' && <Overview d={d.data} reload={d.reload} startJob={startJob} />}
       {tab === 'settings' && <SettingsTab s={s} sftp={d.data.sftp_available} onSaved={(j) => { d.reload(); if (j) setJob(j); }} />}
+      {tab === 'files' && <FilesTab s={s} />}
+      {tab === 'database' && s.db && <DatabaseTab s={s} />}
       {tab === 'wordpress' && <WordPressTab s={s} startJob={startJob} />}
       {tab === 'backups' && <BackupsTab s={s} backups={d.data.backups} reload={d.reload} startJob={startJob} />}
       {tab === 'logs' && <LogsTab s={s} />}
@@ -107,6 +113,7 @@ function HalyardCard({ s, reload }: { s: Site; reload: () => void }) {
   const toast = useToast();
   const [vip, setVip] = useState(s.halyard.vip_id);
   const [exposure, setExposure] = useState(s.halyard.exposure);
+  const [dns, setDns] = useState(!s.halyard.no_dns);
   const [busy, setBusy] = useState(false);
   const h = s.halyard;
   const i = info.data;
@@ -123,6 +130,7 @@ function HalyardCard({ s, reload }: { s: Site; reload: () => void }) {
       {h.enabled && <div className="kv" style={{ marginBottom: 12 }}>
         <div>VIP</div><div>{vipName(h.vip_id)}</div>
         <div>Exposure</div><div>{exposureLabel[h.exposure] ?? (h.exposure || 'default')}</div>
+        <div>DNS</div><div>{h.no_dns ? 'Not managed' : h.exposure === 'lan' ? 'Managed (record to the VIP)' : 'Managed, proxied by Cloudflare'}</div>
         <div>Domains</div><div>{[s.domain, ...(s.aliases ?? [])].join(', ')}</div>
         {h.cert_id && <><div>Certificate</div><div>Requested by Berth</div></>}
       </div>}
@@ -135,8 +143,9 @@ function HalyardCard({ s, reload }: { s: Site; reload: () => void }) {
           <option value="">Default</option>
           {Object.entries(exposureLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
       </div>}
+      {i?.configured && !i.error && <Toggle on={dns} onChange={setDns} label="Manage DNS in Cloudflare" />}
       <div style={{ display: 'flex', gap: 8 }}>
-        {i?.configured && <button className="btn s p" disabled={busy || s.status !== 'active'} onClick={() => run(post('/sites/' + s.id + '/halyard', { vip_id: vip, exposure }), h.enabled ? 'Halyard host updated' : 'Published on Halyard')}>
+        {i?.configured && <button className="btn s p" disabled={busy || s.status !== 'active'} onClick={() => run(post('/sites/' + s.id + '/halyard', { vip_id: vip, exposure, no_dns: !dns }), h.enabled ? 'Halyard host updated' : 'Published on Halyard')}>
           {h.enabled ? 'Update host' : 'Publish on Halyard'}</button>}
         {h.enabled && <button className="btn s" disabled={busy} onClick={() => confirm('Remove this site\'s host from Halyard? Visitors will no longer reach it through the load balancer.') && run(del('/sites/' + s.id + '/halyard'), 'Removed from Halyard')}>Remove from Halyard</button>}
       </div>
@@ -285,24 +294,32 @@ function WordPressTab({ s, startJob }: { s: Site; startJob: (p: Promise<{ job_id
 
 export function BackupTable({ backups, site, reload, startJob, showSite }: { backups: Backup[]; site?: Site; reload: () => void; startJob: (p: Promise<{ job_id: number }>, m?: string) => void; showSite?: boolean }) {
   const toast = useToast();
+  const [restore, setRestore] = useState<Backup | null>(null);
+  const [browse, setBrowse] = useState<Backup | null>(null);
   if (backups.length === 0) return <div className="empty">No backups yet.</div>;
   return (
-    <table>
-      <thead><tr>{showSite && <th>Site</th>}<th>Backup</th><th>Size</th><th>Taken</th><th></th></tr></thead>
-      <tbody>{backups.map((b) => (
-        <tr key={b.site + b.file}>
-          {showSite && <td><Link to={'/sites/' + b.site}>{b.site}</Link></td>}
-          <td className="mono" style={{ fontSize: 12 }}>{b.file}{b.file.endsWith('-final.tar.gz') && <> <Badge kind="w">final</Badge></>}</td>
-          <td className="muted">{bytes(b.size)}</td>
-          <td className="muted">{fmtDate(b.time)}</td>
-          <td style={{ textAlign: 'right' }}>
-            <a className="btn s ghost" href={`/api/sites/${b.site}/backups/${b.file}`} title="Download"><Icon name="down" size={13} /></a>
-            {site && site.status === 'active' && <button className="btn s ghost" title="Restore" onClick={() => confirm(`Restore ${site.domain} from ${b.file}? Its files${site.db ? ' and database' : ''} are replaced. A backup of the current state is taken first.`) && startJob(post(`/sites/${b.site}/backups/${b.file}/restore`), 'Restoring')}><Icon name="hist" size={13} /></button>}
-            <button className="btn s ghost" title="Delete" onClick={() => confirm(`Delete ${b.file}?`) && del(`/sites/${b.site}/backups/${b.file}`).then(() => { toast('Backup deleted'); reload(); }).catch((e) => toast(e.message, true))}><Icon name="trash" size={13} /></button>
-          </td>
-        </tr>
-      ))}</tbody>
-    </table>
+    <>
+      <table>
+        <thead><tr>{showSite && <th>Site</th>}<th>Backup</th><th className="hide-sm">Size</th><th>Taken</th><th className="hide-sm">Where</th><th></th></tr></thead>
+        <tbody>{backups.map((b) => (
+          <tr key={b.site + b.file}>
+            {showSite && <td><Link to={'/sites/' + b.site + '?tab=backups'}>{b.site}</Link></td>}
+            <td className="mono" style={{ fontSize: 12 }}>{b.file}{b.file.endsWith('-final.tar.gz') && <> <Badge kind="w">final</Badge></>}</td>
+            <td className="muted hide-sm">{bytes(b.size)}</td>
+            <td className="muted">{fmtDate(b.time)}</td>
+            <td className="hide-sm"><Where b={b} /></td>
+            <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+              {site && site.status === 'active' && <button className="btn s" onClick={() => setRestore(b)}><Icon name="hist" size={13} />Restore</button>}
+              {site && <button className="btn s ghost" title="Browse files" onClick={() => setBrowse(b)}><Icon name="folder" size={13} /></button>}
+              <a className="btn s ghost" href={`/api/sites/${b.site}/backups/${b.file}`} title="Download"><Icon name="down" size={13} /></a>
+              <button className="btn s ghost" title="Delete" onClick={() => confirm(`Delete ${b.file}${b.remote ? ' here and from off-site storage' : ''}?`) && del(`/sites/${b.site}/backups/${b.file}`).then(() => { toast('Backup deleted'); reload(); }).catch((e) => toast(e.message, true))}><Icon name="trash" size={13} /></button>
+            </td>
+          </tr>
+        ))}</tbody>
+      </table>
+      {site && restore && <RestoreModal site={site} b={restore} onClose={() => setRestore(null)} startJob={startJob} />}
+      {site && browse && <BackupBrowser site={site} b={browse} onClose={() => setBrowse(null)} startJob={startJob} />}
+    </>
   );
 }
 
@@ -312,7 +329,7 @@ function BackupsTab({ s, backups, reload, startJob }: { s: Site; backups: Backup
       <div className="ch"><h3>Backups of {s.domain}</h3>
         <button className="btn s p" disabled={s.status !== 'active'} onClick={() => startJob(post('/sites/' + s.id + '/backups'), 'Backup started')}><Icon name="backup" size={13} />Back up now</button></div>
       <BackupTable backups={backups} site={s} reload={reload} startJob={startJob} />
-      <div className="cb dim" style={{ fontSize: 12, borderTop: '1px solid var(--line)' }}>Each backup is one .tar.gz with the site's files, {s.db ? 'a database dump, ' : ''}and its settings. Restoring takes a backup of the current state first.</div>
+      <div className="cb dim" style={{ fontSize: 12, borderTop: '1px solid var(--line)' }}>Each backup is one .tar.gz with the site's files, {s.db ? 'a database dump, ' : ''}and its settings. Restore brings back everything, only the files or only the database, after backing up the current state. Browse a backup to download or put back single files and folders.</div>
     </div>
   );
 }

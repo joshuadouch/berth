@@ -30,12 +30,13 @@ func (e *Engine) halyardClient(ctx context.Context) (*halyard.Client, model.Haly
 
 // HalyardInfo is shown on the Settings and site pages.
 type HalyardInfo struct {
-	Configured bool           `json:"configured"`
-	Error      string         `json:"error,omitempty"`
-	VIPs       []halyard.VIP  `json:"vips"`
-	Pools      []halyard.Pool `json:"pools"`
-	PoolOK     bool           `json:"pool_ok"`
-	LocalAddr  string         `json:"local_addr"`
+	Configured bool                `json:"configured"`
+	Error      string              `json:"error,omitempty"`
+	VIPs       []halyard.VIP       `json:"vips"`
+	Pools      []halyard.Pool      `json:"pools"`
+	PoolOK     bool                `json:"pool_ok"`
+	LocalAddr  string              `json:"local_addr"`
+	Cloudflare *halyard.Cloudflare `json:"cloudflare,omitempty"`
 }
 
 // HalyardInfo reports the integration's state and what Halyard offers.
@@ -60,6 +61,9 @@ func (e *Engine) HalyardInfo(ctx context.Context) HalyardInfo {
 		return info
 	}
 	info.VIPs, info.Pools = vips, pools
+	if cf, err := c.Cloudflare(ctx); err == nil {
+		info.Cloudflare = &cf
+	}
 	for _, p := range pools {
 		if p.ID == h.PoolID {
 			info.PoolOK = true
@@ -121,7 +125,7 @@ func (e *Engine) pushHalyard(ctx context.Context, s *model.Site, logf Logf) erro
 		link.Exposure = hs.Exposure
 	}
 	if link.Exposure == "" {
-		link.Exposure = "lan"
+		link.Exposure = "public"
 	}
 
 	host := halyard.Host{}
@@ -158,8 +162,10 @@ func (e *Engine) pushHalyard(ctx context.Context, s *model.Site, logf Logf) erro
 		host["require_aop"] = false
 	}
 	host["routes"] = withDefaultRoute(host["routes"], hs.PoolID)
+	// Public and tunnel hosts get proxied (orange cloud) records; LAN hosts
+	// get a plain record pointing at the VIP.
+	host["publish_dns"] = !link.NoDNS
 	if isNew {
-		host["publish_dns"] = link.Exposure != "lan"
 		host["enabled"] = true
 		host["notes"] = "Managed by Berth (site " + s.Name + ")"
 	}
@@ -332,6 +338,7 @@ func (e *Engine) LinkHalyard(ctx context.Context, name string, l model.HalyardLi
 	if l.Exposure != "" {
 		s.Halyard.Exposure = l.Exposure
 	}
+	s.Halyard.NoDNS = l.NoDNS
 	logf := func(string, ...any) {}
 	err = e.pushHalyard(ctx, &s, logf)
 	e.saveHalyardLink(ctx, &s, err, logf)

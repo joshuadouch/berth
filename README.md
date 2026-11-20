@@ -28,6 +28,18 @@ site.
   plugins, themes and translations (backed up first), password reset for any
   WordPress user, and WP-Cron run by Berth every five minutes instead of on page
   views. Changing a WordPress site's domain rewrites its URLs in the database.
+- **File manager.** Browse, edit, upload (files or whole folders, by drag and
+  drop), download, rename, delete, change permissions and unzip, inside the
+  site's folder only.
+- **Database editor.** Browse and search tables, edit, add and delete rows, and
+  run SQL, connected as the site's own database user.
+- **Off-site backups** to any S3-compatible storage (Backblaze B2, Cloudflare
+  R2, Wasabi, AWS, MinIO) with their own retention.
+- **One-click restore** of everything, only the files or only the database, and
+  a browser for the files inside any backup: download one file or put back
+  chosen files and folders.
+- **PHP versions per site**, installed from the System page, with PHP security
+  updates checked daily and installed in one click.
 - **SFTP per site**, locked into the site's folder, with a password or SSH keys.
 - **Logs.** Access, nginx error and PHP error logs for each site in the UI.
 - PHP version, memory, upload limit and workers per site; extra domains with an
@@ -98,10 +110,23 @@ Berth can create each site's Halyard host for you.
 New sites then have a **Publish on Halyard** option, and existing sites have a
 Halyard card on their Overview tab. Berth keeps the host's domains, VIP,
 exposure and HTTPS in step with the site, and leaves anything else you change on
-Halyard (HSTS, allow lists, extra routes) alone. When an HTTPS site's domains are
+Halyard (HSTS, allow lists, extra routes) alone. DNS is managed by default:
+public and tunnel sites get proxied (orange cloud) Cloudflare records, and LAN
+sites get a plain record pointing at the VIP. Halyard needs its Cloudflare API
+token (and, for public sites, your public IP) set on its Cloudflare page. When an HTTPS site's domains are
 not covered by an existing certificate (a wildcard, say), Berth asks Halyard to
 issue one. Deleting a site, or pressing **Remove from Halyard**, deletes its host
 and the certificate Berth requested once nothing else uses it.
+
+### Off-site backups
+
+In **Settings → Off-site backups (S3)**, enter the endpoint, region, bucket and
+an application key. For Backblaze B2, create a private bucket, then an
+application key limited to that bucket, and use the S3 endpoint shown on the
+bucket page (such as `s3.eu-central-003.backblazeb2.com`, region
+`eu-central-003`). **Test connection** checks that Berth can write and delete.
+Every backup is then copied to `<folder>/<site>/` in the bucket. Restoring or
+browsing a backup that is only off-site downloads it first.
 
 Turn on **Refuse visitors that skip the load balancer** to answer 403 to any
 request that does not come from a trusted proxy.

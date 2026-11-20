@@ -34,6 +34,7 @@ export default function NewSite() {
   const [publish, setPublish] = useState(true);
   const [vip, setVip] = useState('');
   const [exposure, setExposure] = useState('');
+  const [dns, setDns] = useState<boolean | null>(null);
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<Result | null>(null);
@@ -47,7 +48,8 @@ export default function NewSite() {
     setAdminEmail((v) => v || s.wp_admin_email);
     setLocale((v) => v || s.wp_locale);
     setVip((v) => v || s.halyard.vip_id);
-    setExposure((v) => v || s.halyard.exposure || 'lan');
+    setExposure((v) => v || s.halyard.exposure || 'public');
+    setDns((v) => (v === null ? !s.halyard.no_dns : v));
   }, [cfg.data]);
   useEffect(() => {
     if (!nameTouched) setName(domain ? nameFromDomain(domain) : '');
@@ -63,7 +65,7 @@ export default function NewSite() {
         type, domain: domain.trim(), name, aliases, redirect_aliases: redirect, php_version: php, https, enabled: true,
         doc_root: docRoot, front_controller: front, backups, sftp: { enabled: false, keys: [] },
       };
-      if (halyardReady && publish) body.halyard = { enabled: true, vip_id: vip, exposure };
+      if (halyardReady && publish) body.halyard = { enabled: true, vip_id: vip, exposure, no_dns: dns === false };
       if (type === 'wordpress') body.wp = { title: title || domain.trim(), admin_user: adminUser, admin_email: adminEmail, locale };
       setRes(await post<Result>('/sites', body));
     } catch (e) { setErr(e); } finally { setBusy(false); }
@@ -141,6 +143,7 @@ export default function NewSite() {
               <Field label="Exposure"><select className="input" value={exposure} onChange={(e) => setExposure(e.target.value)}>
                 {Object.entries(exposureLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
             </div>}
+            {publish && <Toggle on={dns !== false} onChange={setDns} label="Manage DNS in Cloudflare" help={exposure === 'lan' ? 'A plain record pointing at the VIP.' : 'A proxied (orange cloud) record for each domain.'} />}
           </>}
           {type === 'wordpress' && <>
             <div className="navlabel" style={{ padding: '6px 0 12px' }}>WordPress</div>

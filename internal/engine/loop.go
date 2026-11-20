@@ -74,6 +74,8 @@ func (e *Engine) Loop(ctx context.Context) {
 	defer tick.Stop()
 	lastCron := time.Time{}
 	lastUsage := time.Now()
+	// PHP updates: check soon after start, then once a day.
+	lastPHP := time.Now().Add(-23 * time.Hour)
 	for {
 		select {
 		case <-ctx.Done():
@@ -88,6 +90,10 @@ func (e *Engine) Loop(ctx context.Context) {
 				go e.measureUsage(ctx)
 			}
 			e.maybeNightly(ctx, now)
+			if now.Sub(lastPHP) >= 24*time.Hour && !e.Cfg.DryRun {
+				lastPHP = now
+				go e.CheckPHPUpdates(ctx)
+			}
 		}
 	}
 }
@@ -131,6 +137,7 @@ func (e *Engine) NightlyBackups(ctx context.Context, logf Logf) error {
 			continue
 		}
 		e.Prune(ctx, s.Name, st.BackupKeep)
+		e.pruneRemote(ctx, s.Name, logf)
 	}
 	if len(failed) > 0 {
 		return &multiErr{failed}

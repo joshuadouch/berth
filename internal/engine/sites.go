@@ -79,7 +79,7 @@ func (e *Engine) CreateSite(ctx context.Context, req CreateRequest, author strin
 	s.StatusError = ""
 	s.CreatedAt = time.Now().UTC()
 	// Only the request to publish survives; ids come from Halyard.
-	s.Halyard = model.HalyardLink{Enabled: s.Halyard.Enabled, VIPID: s.Halyard.VIPID, Exposure: s.Halyard.Exposure}
+	s.Halyard = model.HalyardLink{Enabled: s.Halyard.Enabled, VIPID: s.Halyard.VIPID, Exposure: s.Halyard.Exposure, NoDNS: s.Halyard.NoDNS}
 	if !validExposure(s.Halyard.Exposure) {
 		return CreateResult{}, fmt.Errorf("unknown exposure %q", s.Halyard.Exposure)
 	}

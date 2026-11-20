@@ -32,11 +32,17 @@ type Engine struct {
 	Version string
 	// HalyardHTTP overrides the HTTP client used to call Halyard (tests).
 	HalyardHTTP *http.Client
+	// S3Transport and S3Insecure point off-site backups at a test server.
+	S3Transport http.RoundTripper
+	S3Insecure  bool
 
 	applyMu sync.Mutex
 	siteMu  sync.Map // site name -> *sync.Mutex
 	usage   usageCache
 	upgrade upgradeState
+	remote  remoteCache
+	index   indexCache
+	phpUp   phpUpdateState
 }
 
 // New creates an engine.
