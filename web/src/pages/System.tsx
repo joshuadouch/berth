@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Disk, get, post, Service } from '../api';
+import { ago, Disk, get, post, Service } from '../api';
 import { Badge, ErrorBox, Icon, JobView, Loading, Modal, useLoad, useToast } from '../ui';
 import { DiskBars, ServiceList } from './Dashboard';
 
@@ -7,16 +7,26 @@ interface Sys {
   name: string; version: string; update: { current: string; latest: string; latest_url: string; check_error?: string };
   php_versions: string[]; installed_php: string[]; php_in_use: Record<string, number>; services: Service[]; disks: Disk[];
   paths: Record<string, string>; sftp: boolean;
+  php_updates: PHPUpdates;
 }
+interface PHPUpdates { checked: string; updates: { package: string; php: string; from: string; to: string }[] | null; error?: string; checking: boolean }
 
 export default function System() {
   const [check, setCheck] = useState(0);
   const { data, error, reload } = useLoad(() => get<Sys>('/system' + (check ? '?check=1' : '')), [check], 20000);
   const [job, setJob] = useState<number | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [phpCheck, setPhpCheck] = useState<PHPUpdates | null>(null);
+  const [phpBusy, setPhpBusy] = useState(false);
   const toast = useToast();
   if (!data) return error ? <ErrorBox error={error} /> : <Loading />;
   const u = data.update;
+  const pu = phpCheck ?? data.php_updates;
+  const ups = pu.updates ?? [];
+  const checkPHP = () => { setPhpBusy(true); post<PHPUpdates>('/system/php-updates/check').then(setPhpCheck).catch((e) => toast(e.message, true)).finally(() => setPhpBusy(false)); };
+  const applyPHP = () => confirm(`Install ${ups.length} PHP package update${ups.length === 1 ? '' : 's'}? PHP-FPM restarts for a moment for each version.`) &&
+    post<{ job_id: number }>('/system/php-updates/apply').then((r) => { setPhpCheck(null); setJob(r.job_id); }).catch((e) => toast(e.message, true));
+  const byVersion = ups.reduce<Record<string, string>>((m, x) => { if (x.php && x.package === `php${x.php}-fpm`) m[x.php] = x.to.split('-')[0].split(':').pop()!; return m; }, {});
   const newer = u.latest && u.latest !== u.current;
   const update = () => {
     if (!confirm(`Update Berth to ${u.latest}? The panel restarts for a moment; sites keep running.`)) return;
@@ -45,11 +55,25 @@ export default function System() {
             <table><tbody>{data.php_versions.map((v) => {
               const inst = data.installed_php.includes(v);
               return (
-                <tr key={v}><td><b>PHP {v}</b></td><td className="muted">{data.php_in_use[v] ? `${data.php_in_use[v]} site${data.php_in_use[v] === 1 ? '' : 's'}` : ''}</td>
+                <tr key={v}><td><b>PHP {v}</b>{byVersion[v] && <> <Badge kind="w">{byVersion[v]} available</Badge></>}</td><td className="muted">{data.php_in_use[v] ? `${data.php_in_use[v]} site${data.php_in_use[v] === 1 ? '' : 's'}` : ''}</td>
                   <td style={{ textAlign: 'right' }}>{inst ? <Badge kind="g">Installed</Badge> :
                     <button className="btn s" onClick={() => confirm(`Install PHP ${v} from packages.sury.org?`) && post<{ job_id: number }>('/system/php/' + v).then((r) => setJob(r.job_id)).catch((e) => toast(e.message, true))}>Install</button>}</td></tr>
               );
             })}</tbody></table>
+            <div className="cb dim" style={{ fontSize: 12, borderTop: '1px solid var(--line)' }}>Each site picks its own version on its Settings tab. Versions can run side by side.</div>
+          </div>
+          <div className="card"><div className="ch"><h3>PHP security updates</h3>
+            <button className="btn s ghost" disabled={phpBusy || pu.checking} onClick={checkPHP}><Icon name="sync" size={12} />{phpBusy || pu.checking ? 'Checking…' : 'Check now'}</button></div>
+            <div className="cb">
+              {pu.error && <div className="warnbox">Could not check: {pu.error}</div>}
+              {!pu.checked || pu.checked.startsWith('0001') ? <p className="muted" style={{ marginBottom: 12 }}>Not checked yet. Berth checks packages.sury.org once a day.</p> :
+                ups.length === 0 ? <p style={{ marginBottom: 12 }}><Badge kind="g">Up to date</Badge> <span className="muted">Checked {ago(pu.checked)}.</span></p> :
+                  <p style={{ marginBottom: 12 }}><Badge kind="w">{ups.length} update{ups.length === 1 ? '' : 's'}</Badge> <span className="muted">Security and bug-fix releases, checked {ago(pu.checked)}.</span></p>}
+              {ups.length > 0 && <button className="btn p" onClick={applyPHP}>Install PHP updates</button>}
+            </div>
+            {ups.length > 0 && <table><tbody>{ups.map((x) => (
+              <tr key={x.package}><td className="mono" style={{ fontSize: 12 }}>{x.package}</td><td className="mono muted" style={{ fontSize: 11 }}>{x.from.split('+')[0]} → {x.to.split('+')[0]}</td></tr>
+            ))}</tbody></table>}
           </div>
         </div>
         <div className="stack">
@@ -64,7 +88,7 @@ export default function System() {
           </div></div>
         </div>
       </div>
-      {job !== null && <Modal title="Install PHP" onClose={() => { setJob(null); reload(); }}><JobView id={job} onDone={reload} /></Modal>}
+      {job !== null && <Modal title="PHP" onClose={() => { setJob(null); reload(); }}><JobView id={job} onDone={reload} /></Modal>}
     </>
   );
 }

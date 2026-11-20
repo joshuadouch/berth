@@ -2,9 +2,12 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"strconv"
+	"strings"
 
 	"github.com/joshuadouch/berth/internal/engine"
 	"github.com/joshuadouch/berth/internal/model"
@@ -117,7 +120,7 @@ func (s *Server) createBackup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) downloadBackup(w http.ResponseWriter, r *http.Request) {
-	p, err := s.Engine.BackupPath(r.Context(), r.PathValue("id"), r.PathValue("file"))
+	p, err := s.Engine.LocalBackup(r.Context(), r.PathValue("id"), r.PathValue("file"), func(string, ...any) {})
 	if err != nil {
 		writeStoreErr(w, err)
 		return
@@ -140,19 +143,68 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	file := r.PathValue("file")
-	if _, err := s.Engine.BackupPath(r.Context(), site.Name, file); err != nil {
-		writeStoreErr(w, err)
+	if !engine.ValidBackupName(file) || !strings.HasPrefix(file, site.Name+"-") {
+		writeErr(w, 400, "invalid backup name")
 		return
 	}
-	safety := r.URL.Query().Get("safety") != "0"
-	id, err := s.Engine.StartJob(site.Name, "restore", "Restore "+site.Domain+" from "+file, func(ctx context.Context, logf engine.Logf) error {
-		return s.Engine.Restore(ctx, site, file, safety, logf)
+	var req struct {
+		Safety *bool    `json:"safety"`
+		What   string   `json:"what"`  // all, files, db
+		Paths  []string `json:"paths"` // restore only these files and folders
+	}
+	if r.ContentLength > 0 {
+		if err := readJSON(r, &req); err != nil {
+			writeErr(w, 400, err.Error())
+			return
+		}
+	}
+	o := engine.RestoreOptions{Safety: req.Safety == nil || *req.Safety, What: req.What}
+	if r.URL.Query().Get("safety") == "0" {
+		o.Safety = false
+	}
+	title := "Restore " + site.Domain + " from " + file
+	if len(req.Paths) > 0 {
+		title = fmt.Sprintf("Restore %d item(s) of %s from %s", len(req.Paths), site.Domain, file)
+	}
+	id, err := s.Engine.StartJob(site.Name, "restore", title, func(ctx context.Context, logf engine.Logf) error {
+		if len(req.Paths) > 0 {
+			return s.Engine.RestoreFiles(ctx, site, file, req.Paths, logf)
+		}
+		return s.Engine.Restore(ctx, site, file, o, logf)
 	})
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"job_id": id})
+}
+
+func (s *Server) browseBackup(w http.ResponseWriter, r *http.Request) {
+	site, ok := s.site(w, r)
+	if !ok {
+		return
+	}
+	l, err := s.Engine.BrowseBackup(r.Context(), site.Name, r.PathValue("file"), r.URL.Query().Get("path"))
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	writeJSON(w, 200, l)
+}
+
+func (s *Server) backupFile(w http.ResponseWriter, r *http.Request) {
+	site, ok := s.site(w, r)
+	if !ok {
+		return
+	}
+	p := r.URL.Query().Get("path")
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(path.Base(p), `"`, "")+`"`)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if err := s.Engine.BackupFile(r.Context(), site.Name, r.PathValue("file"), p, w); err != nil {
+		w.Header().Del("Content-Disposition")
+		writeStoreErr(w, err)
+	}
 }
 
 func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request) {
@@ -173,8 +225,10 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tokenSet := st.Halyard.Token != ""
-	st.Halyard.Token = ""
-	writeJSON(w, 200, map[string]any{"settings": st, "halyard_token_set": tokenSet,
+	secretSet := st.S3.SecretKey != ""
+	st.Halyard.Token, st.S3.SecretKey = "", ""
+	writeJSON(w, 200, map[string]any{"settings": st, "halyard_token_set": tokenSet, "s3_secret_set": secretSet,
+		"s3_error":      s.Engine.RemoteError(r.Context()),
 		"installed_php": s.Engine.InstalledPHP(), "php_versions": model.PHPVersions})
 }
 
@@ -194,8 +248,15 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	} else if st.Halyard.Token == "-" {
 		st.Halyard.Token = ""
 	}
+	if st.S3.SecretKey == "" {
+		st.S3.SecretKey = cur.S3.SecretKey
+	}
 	if err := st.Normalize(); err != nil {
 		writeErr(w, 400, err.Error())
+		return
+	}
+	if st.S3.Enabled && st.S3.SecretKey == "" {
+		writeErr(w, 400, "S3 needs the secret key")
 		return
 	}
 	if err := s.Store.SetSettings(r.Context(), st); err != nil {
@@ -209,7 +270,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Store.AddEvent(r.Context(), "info", "settings", "", currentUser(r).Username+" changed settings")
-	st.Halyard.Token = ""
+	st.Halyard.Token, st.S3.SecretKey = "", ""
 	writeJSON(w, 200, st)
 }
 
@@ -223,6 +284,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{
 		"name": s.Cfg.Name, "version": s.Version, "update": s.Engine.CheckUpdate(r.Context(), r.URL.Query().Get("check") == "1"),
+		"php_updates":  s.Engine.PHPUpdateStatus(),
 		"php_versions": model.PHPVersions, "installed_php": s.Engine.InstalledPHP(), "php_in_use": inUse,
 		"services": s.Engine.Services(r.Context()), "disks": s.Engine.Disks(r.Context()),
 		"paths": map[string]string{"sites": s.Cfg.SitesDir, "logs": s.Cfg.LogDir, "nginx": s.Cfg.Nginx.ConfDir, "data": s.Cfg.DataDir},
@@ -243,6 +305,22 @@ func (s *Server) installPHP(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	writeJSON(w, 200, map[string]any{"job_id": id})
+}
+
+func (s *Server) checkPHPUpdates(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, s.Engine.CheckPHPUpdates(r.Context()))
+}
+
+func (s *Server) applyPHPUpdates(w http.ResponseWriter, r *http.Request) {
+	id, err := s.Engine.StartJob("", "php", "Install PHP updates", func(ctx context.Context, logf engine.Logf) error {
+		return s.Engine.UpdatePHP(ctx, logf)
+	})
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.Store.AddEvent(r.Context(), "info", "php", "", currentUser(r).Username+" started PHP updates")
 	writeJSON(w, 200, map[string]any{"job_id": id})
 }
 
@@ -319,4 +397,27 @@ func (s *Server) halyardPool(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Store.AddEvent(r.Context(), "info", "halyard", "", currentUser(r).Username+" created the Halyard pool "+p.Name)
 	writeJSON(w, 200, p)
+}
+
+func (s *Server) testS3(w http.ResponseWriter, r *http.Request) {
+	var c model.S3Settings
+	if err := readJSON(r, &c); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	if c.SecretKey == "" {
+		cur, _ := s.Store.Settings(r.Context())
+		c.SecretKey = cur.S3.SecretKey
+	}
+	c.Enabled = true
+	st := model.Settings{S3: c}
+	if err := st.Normalize(); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	if err := s.Engine.TestS3(r.Context(), st.S3); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
 }

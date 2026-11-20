@@ -74,7 +74,9 @@ type HalyardLink struct {
 	VIPID    string `json:"vip_id"`
 	Exposure string `json:"exposure"` // lan, public, tunnel
 	CertID   string `json:"cert_id"`
-	Error    string `json:"error"`
+	// NoDNS leaves Cloudflare DNS alone for this site (DNS is managed by default).
+	NoDNS bool   `json:"no_dns"`
+	Error string `json:"error"`
 }
 
 // Site is one website.
@@ -267,6 +269,24 @@ type Settings struct {
 	AccessEmails []string `json:"access_emails"`
 
 	Halyard HalyardSettings `json:"halyard"`
+
+	// S3 copies every backup to S3-compatible storage (Backblaze B2, R2...).
+	S3 S3Settings `json:"s3"`
+}
+
+// S3Settings is an off-site copy of backups.
+type S3Settings struct {
+	Enabled   bool   `json:"enabled"`
+	Endpoint  string `json:"endpoint"` // host, e.g. s3.eu-central-003.backblazeb2.com
+	Region    string `json:"region"`
+	Bucket    string `json:"bucket"`
+	Prefix    string `json:"prefix"` // folder inside the bucket
+	AccessKey string `json:"access_key"`
+	SecretKey string `json:"secret_key,omitempty"`
+	PathStyle bool   `json:"path_style"` // for MinIO and similar
+	Keep      int    `json:"keep"`       // backups kept per site off-site
+	// LocalKeep overrides BackupKeep while S3 is on (0 = same as BackupKeep).
+	LocalKeep int `json:"local_keep"`
 }
 
 // HalyardSettings connects Berth to a Halyard load balancer.
@@ -278,6 +298,8 @@ type HalyardSettings struct {
 	Exposure string `json:"exposure"`  // default exposure for new sites
 	Insecure bool   `json:"insecure"`  // skip TLS verification (self-signed UI cert)
 	AutoCert bool   `json:"auto_cert"` // request a certificate for each site
+	// NoDNS stops new sites from managing Cloudflare DNS by default.
+	NoDNS bool `json:"no_dns"`
 }
 
 var timeRe = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
@@ -337,9 +359,17 @@ func (st *Settings) Normalize() error {
 	for i, e := range st.AccessEmails {
 		st.AccessEmails[i] = strings.ToLower(strings.TrimSpace(e))
 	}
+	if err := st.S3.normalize(); err != nil {
+		return err
+	}
+	// Sites default to proxied Cloudflare DNS. Settings saved before
+	// Halyard was connected carried the old LAN default, so move them on.
+	if st.Halyard.URL == "" && st.Halyard.Exposure == "lan" {
+		st.Halyard.Exposure = ""
+	}
 	switch st.Halyard.Exposure {
 	case "":
-		st.Halyard.Exposure = "lan"
+		st.Halyard.Exposure = "public"
 	case "lan", "public", "tunnel":
 	default:
 		return fmt.Errorf("unknown exposure %q", st.Halyard.Exposure)
@@ -386,8 +416,33 @@ type Job struct {
 
 // Backup is a backup archive on disk.
 type Backup struct {
-	Site string    `json:"site"`
-	File string    `json:"file"`
-	Size int64     `json:"size"`
-	Time time.Time `json:"time"`
+	Site   string    `json:"site"`
+	File   string    `json:"file"`
+	Size   int64     `json:"size"`
+	Time   time.Time `json:"time"`
+	Local  bool      `json:"local"`  // in the backup folder
+	Remote bool      `json:"remote"` // in S3
+}
+
+func (c *S3Settings) normalize() error {
+	c.Endpoint = strings.TrimSpace(c.Endpoint)
+	// "http://" stays, for MinIO on the LAN; HTTPS is the default.
+	c.Endpoint = strings.TrimRight(strings.TrimPrefix(c.Endpoint, "https://"), "/")
+	c.Bucket = strings.TrimSpace(c.Bucket)
+	c.Region = strings.TrimSpace(c.Region)
+	c.AccessKey = strings.TrimSpace(c.AccessKey)
+	c.Prefix = strings.Trim(strings.TrimSpace(c.Prefix), "/")
+	if c.Keep <= 0 {
+		c.Keep = 30
+	}
+	if c.Keep > 3650 || c.LocalKeep < 0 || c.LocalKeep > 365 {
+		return fmt.Errorf("S3: retention is out of range")
+	}
+	if c.Enabled && (c.Endpoint == "" || c.Bucket == "" || c.AccessKey == "") {
+		return fmt.Errorf("S3 needs an endpoint, a bucket and an access key")
+	}
+	if c.Endpoint != "" && strings.ContainsAny(strings.TrimPrefix(c.Endpoint, "http://"), " /") {
+		return fmt.Errorf("S3 endpoint should be a host name like s3.eu-central-003.backblazeb2.com")
+	}
+	return nil
 }

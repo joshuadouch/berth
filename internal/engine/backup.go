@@ -86,7 +86,23 @@ func (e *Engine) Backups(ctx context.Context, site string) ([]model.Backup, erro
 			if err != nil {
 				continue
 			}
-			out = append(out, model.Backup{Site: name, File: f.Name(), Size: info.Size(), Time: backupTime(f.Name(), info.ModTime())})
+			out = append(out, model.Backup{Site: name, File: f.Name(), Size: info.Size(), Time: backupTime(f.Name(), info.ModTime()), Local: true})
+		}
+	}
+	if remote, err := e.remoteBackups(ctx); err == nil {
+		idx := map[string]int{}
+		for i, b := range out {
+			idx[b.File] = i
+		}
+		for _, b := range remote {
+			if site != "" && b.Site != site {
+				continue
+			}
+			if i, ok := idx[b.File]; ok {
+				out[i].Remote = true
+				continue
+			}
+			out = append(out, b)
 		}
 	}
 	store.SortBackups(out)
@@ -251,7 +267,8 @@ func (e *Engine) backup(ctx context.Context, s model.Site, suffix string, logf L
 	info, _ := os.Stat(final)
 	logf("Saved %s (%d files, %s)", final, files, humanBytes(info.Size()))
 	e.Store.AddEvent(ctx, "info", "backup", s.Name, "Backup "+name+" saved")
-	return model.Backup{Site: s.Name, File: name, Size: info.Size(), Time: now}, nil
+	e.uploadRemote(ctx, s.Name, name, final, logf)
+	return model.Backup{Site: s.Name, File: name, Size: info.Size(), Time: now, Local: true}, nil
 }
 
 type zeroReader struct{}
@@ -304,13 +321,16 @@ func humanBytes(n int64) string {
 // Prune keeps the newest keep backups of a site. Final backups (taken when a
 // site is deleted) are never pruned.
 func (e *Engine) Prune(ctx context.Context, site string, keep int) {
+	if st, err := e.Store.Settings(ctx); err == nil && st.S3.Enabled && st.S3.LocalKeep > 0 {
+		keep = st.S3.LocalKeep
+	}
 	bs, err := e.Backups(ctx, site)
 	if err != nil {
 		return
 	}
 	n := 0
 	for _, b := range bs {
-		if strings.HasSuffix(b.File, "-final.tar.gz") {
+		if !b.Local || strings.HasSuffix(b.File, "-final.tar.gz") {
 			continue
 		}
 		n++
@@ -322,11 +342,25 @@ func (e *Engine) Prune(ctx context.Context, site string, keep int) {
 	}
 }
 
+// RestoreOptions says what to bring back from a backup.
+type RestoreOptions struct {
+	Safety bool   // back up the current site first
+	What   string // all (default), files or db
+}
+
 // Restore replaces a site's files and database with a backup.
-func (e *Engine) Restore(ctx context.Context, s model.Site, file string, safety bool, logf Logf) error {
+func (e *Engine) Restore(ctx context.Context, s model.Site, file string, o RestoreOptions, logf Logf) error {
 	unlock := e.lockSite(s.Name)
 	defer unlock()
-	path, err := e.BackupPath(ctx, s.Name, file)
+	switch o.What {
+	case "":
+		o.What = "all"
+	case "all", "files", "db":
+	default:
+		return fmt.Errorf("unknown restore option %q", o.What)
+	}
+	safety := o.Safety
+	path, err := e.LocalBackup(ctx, s.Name, file, logf)
 	if err != nil {
 		return err
 	}
@@ -347,6 +381,11 @@ func (e *Engine) Restore(ctx context.Context, s model.Site, file string, safety 
 	if err != nil {
 		return err
 	}
+	if o.What == "files" {
+		hasDB = false
+	} else if o.What == "db" && (!hasDB || s.DB == nil) {
+		return errors.New("this backup has no database to restore")
+	}
 	if hasDB && s.DB != nil {
 		logf("Restoring database %s", s.DB.Name)
 		if _, err := e.sql(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS `%[1]s`;\nCREATE DATABASE `%[1]s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\n", s.DB.Name)); err != nil {
@@ -366,6 +405,10 @@ func (e *Engine) Restore(ctx context.Context, s model.Site, file string, safety 
 		}
 	} else if hasDB {
 		logf("The backup has a database but this site has none; skipping it")
+	}
+	if o.What == "db" {
+		e.Store.AddEvent(ctx, "warn", "backup", s.Name, "Restored the database from "+file)
+		return nil
 	}
 	logf("Replacing files")
 	ents, _ := os.ReadDir(filepath.Join(stage, "files"))
@@ -394,7 +437,11 @@ func (e *Engine) Restore(ctx context.Context, s model.Site, file string, safety 
 	if s.Type == model.TypeWordPress && s.DB != nil {
 		_ = e.WPSetDBPassword(ctx, s)
 	}
-	e.Store.AddEvent(ctx, "warn", "backup", s.Name, "Restored "+file)
+	what := "Restored "
+	if o.What == "files" {
+		what = "Restored the files from "
+	}
+	e.Store.AddEvent(ctx, "warn", "backup", s.Name, what+file)
 	return nil
 }
 
@@ -463,11 +510,26 @@ func extract(archive, dir string) (hasDB bool, err error) {
 	return hasDB, nil
 }
 
-// DeleteBackup removes a backup file.
+// DeleteBackup removes a backup here and off-site.
 func (e *Engine) DeleteBackup(ctx context.Context, site, file string) error {
-	p, err := e.BackupPath(ctx, site, file)
-	if err != nil {
+	if !model.ValidName(site) || !ValidBackupName(file) || !strings.HasPrefix(file, site+"-") {
+		return errors.New("invalid backup name")
+	}
+	local := false
+	if p, err := e.BackupPath(ctx, site, file); err == nil {
+		if err := os.Remove(p); err != nil {
+			return err
+		}
+		local = true
+	}
+	if err := e.deleteRemote(ctx, site, file); err != nil {
 		return err
 	}
-	return os.Remove(p)
+	if !local {
+		if _, _, err := e.s3(ctx); err != nil {
+			return store.ErrNotFound
+		}
+	}
+	e.index.drop(file)
+	return nil
 }

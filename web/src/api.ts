@@ -3,7 +3,7 @@ export type SiteType = 'wordpress' | 'php_db' | 'php';
 export interface Database { name: string; user: string; password?: string }
 export interface WordPress { title: string; admin_user: string; admin_email: string; locale: string }
 export interface SFTP { enabled: boolean; keys: string[] | null; password_set: boolean }
-export interface HalyardLink { enabled: boolean; host_id: string; vip_id: string; exposure: string; cert_id: string; error: string }
+export interface HalyardLink { enabled: boolean; host_id: string; vip_id: string; exposure: string; cert_id: string; no_dns: boolean; error: string }
 export interface Site {
   id: string; name: string; type: SiteType; domain: string; aliases: string[] | null; php_version: string; doc_root: string;
   redirect_aliases: boolean; front_controller: boolean; https: boolean; enabled: boolean; upload_mb: number; memory_mb: number;
@@ -11,7 +11,8 @@ export interface Site {
   status_error: string; notes: string; created_at: string;
 }
 export interface Usage { files: number; db: number }
-export interface Backup { site: string; file: string; size: number; time: string }
+export interface Backup { site: string; file: string; size: number; time: string; local: boolean; remote: boolean }
+export interface FileEntry { name: string; dir: boolean; link?: string; size: number; mode: string; mtime: string }
 export interface SiteRow extends Site { usage: Usage; last_backup: Backup | null }
 export interface Job { id: number; site: string; kind: string; title: string; status: 'running' | 'ok' | 'failed'; log: string; started: string; finished: string; error: string }
 export interface Event { id: number; time: string; level: string; kind: string; site: string; message: string }
@@ -19,11 +20,12 @@ export interface Service { name: string; label: string; active: string }
 export interface Disk { path: string; total: number; free: number }
 export interface User { id: string; username: string; email: string; totp_enabled: boolean }
 
-export interface HalyardSettings { url: string; token?: string; pool_id: string; vip_id: string; exposure: string; insecure: boolean; auto_cert: boolean }
+export interface HalyardSettings { url: string; token?: string; pool_id: string; vip_id: string; exposure: string; insecure: boolean; auto_cert: boolean; no_dns: boolean }
+export interface S3Settings { enabled: boolean; endpoint: string; region: string; bucket: string; prefix: string; access_key: string; secret_key?: string; path_style: boolean; keep: number; local_keep: number }
 export interface HalyardVIP { id: string; address: string; label: string }
 export interface HalyardPool { id: string; name: string; members: { name: string; address: string }[] | null }
-export interface HalyardInfo { configured: boolean; error?: string; vips: HalyardVIP[]; pools: HalyardPool[]; pool_ok: boolean; local_addr: string }
-export const exposureLabel: Record<string, string> = { lan: 'LAN only', public: 'Public (DNS points at your WAN)', tunnel: 'Cloudflare Tunnel' };
+export interface HalyardInfo { configured: boolean; error?: string; vips: HalyardVIP[]; pools: HalyardPool[]; pool_ok: boolean; local_addr: string; cloudflare?: { token_set: boolean; public_ip: string; tunnel_id: string } }
+export const exposureLabel: Record<string, string> = { public: 'Public, proxied by Cloudflare', tunnel: 'Cloudflare Tunnel (proxied)', lan: 'LAN only (DNS to the VIP, not proxied)' };
 export const vipLabel = (v: HalyardVIP) => (v.label ? `${v.label} (${v.address.split('/')[0]})` : v.address.split('/')[0]);
 export interface Settings {
   trusted_proxies: string[] | null; proxy_only: boolean; default_php: string;
@@ -31,6 +33,7 @@ export interface Settings {
   wp_locale: string; wp_admin_email: string; wp_admin_user: string;
   access_team: string; access_aud: string; access_emails: string[] | null;
   halyard: HalyardSettings;
+  s3: S3Settings;
 }
 
 export interface SiteDetail {
@@ -69,6 +72,26 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
 }
 
 export const get = <T = any>(p: string) => api<T>('GET', p);
+
+// upload sends files as multipart; names may hold folders ("dir/file").
+export async function upload(path: string, files: { file: File; name: string }[], onProgress?: (pct: number) => void): Promise<void> {
+  const fd = new FormData();
+  for (const f of files) fd.append('file', f.file, f.name);
+  await new Promise<void>((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', '/api' + path);
+    x.setRequestHeader('X-Berth', '1');
+    x.upload.onprogress = (e) => e.lengthComputable && onProgress?.(Math.round((e.loaded / e.total) * 100));
+    x.onload = () => {
+      if (x.status < 300) return resolve();
+      let msg = x.statusText;
+      try { msg = JSON.parse(x.responseText).error || msg; } catch { /* not JSON */ }
+      reject(new ApiError(x.status, msg, null));
+    };
+    x.onerror = () => reject(new ApiError(0, 'upload failed', null));
+    x.send(fd);
+  });
+}
 export const post = <T = any>(p: string, b?: unknown) => api<T>('POST', p, b ?? {});
 export const put = <T = any>(p: string, b: unknown) => api<T>('PUT', p, b);
 export const del = <T = any>(p: string) => api<T>('DELETE', p);

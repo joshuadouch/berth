@@ -49,6 +49,8 @@ type Config struct {
 	MySQL struct {
 		Client string `yaml:"client"` // mariadb, run as root over the socket
 		Dump   string `yaml:"dump"`
+		// Socket is where the database editor connects as each site's user.
+		Socket string `yaml:"socket"`
 	} `yaml:"mysql"`
 
 	WPCLI string `yaml:"wp_cli"`
@@ -85,6 +87,7 @@ func Default() *Config {
 	c.PHP.InstallCmd = "apt-get update -q && apt-get install -y -q php{v}-fpm php{v}-cli php{v}-mysql php{v}-curl php{v}-gd php{v}-intl php{v}-mbstring php{v}-xml php{v}-zip php{v}-bcmath php{v}-soap && (apt-get install -y -q php{v}-imagick php{v}-opcache || true) && systemctl enable --now php{v}-fpm"
 	c.MySQL.Client = "/usr/bin/mariadb"
 	c.MySQL.Dump = "/usr/bin/mariadb-dump"
+	c.MySQL.Socket = "/run/mysqld/mysqld.sock"
 	c.WPCLI = "/usr/local/bin/wp"
 	c.SFTP.Enabled = true
 	c.SFTP.Group = "berth-sftp"

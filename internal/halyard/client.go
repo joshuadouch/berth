@@ -114,6 +114,19 @@ type Cert struct {
 	Hosts   int      `json:"hosts"`
 }
 
+// Cloudflare is what Berth needs to know about Halyard's Cloudflare setup.
+type Cloudflare struct {
+	TokenSet bool   `json:"token_set"`
+	PublicIP string `json:"public_ip"`
+	TunnelID string `json:"tunnel_id"`
+}
+
+// Cloudflare reads Halyard's Cloudflare settings without calling Cloudflare.
+func (c *Client) Cloudflare(ctx context.Context) (Cloudflare, error) {
+	var v Cloudflare
+	return v, c.Do(ctx, "GET", "/api/cloudflare?light=1", nil, &v)
+}
+
 // VIPs lists VIPs.
 func (c *Client) VIPs(ctx context.Context) ([]VIP, error) {
 	var v []VIP

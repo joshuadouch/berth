@@ -89,6 +89,22 @@ func (s *Server) Handler() http.Handler {
 	a("GET /api/sites/{id}/backups/{file}", s.downloadBackup)
 	a("POST /api/sites/{id}/backups/{file}/restore", s.restoreBackup)
 	a("DELETE /api/sites/{id}/backups/{file}", s.deleteBackup)
+	a("GET /api/sites/{id}/backups/{file}/browse", s.browseBackup)
+	a("GET /api/sites/{id}/backups/{file}/file", s.backupFile)
+
+	a("GET /api/sites/{id}/files", s.listFiles)
+	a("GET /api/sites/{id}/files/content", s.readFile)
+	a("GET /api/sites/{id}/files/download", s.downloadFile)
+	a("POST /api/sites/{id}/files", s.fileAction)
+	a("POST /api/sites/{id}/files/upload", s.uploadFiles)
+
+	a("GET /api/sites/{id}/db/tables", s.dbTables)
+	a("GET /api/sites/{id}/db/tables/{table}", s.dbBrowse)
+	a("POST /api/sites/{id}/db/tables/{table}/insert", s.dbChange("insert"))
+	a("POST /api/sites/{id}/db/tables/{table}/update", s.dbChange("update"))
+	a("POST /api/sites/{id}/db/tables/{table}/delete", s.dbChange("delete"))
+	a("POST /api/sites/{id}/db/sql", s.dbSQL)
+	a("POST /api/settings/s3/test", s.testS3)
 
 	a("GET /api/settings", s.getSettings)
 	a("PUT /api/settings", s.putSettings)
@@ -96,6 +112,8 @@ func (s *Server) Handler() http.Handler {
 	a("POST /api/halyard/pool", s.halyardPool)
 	a("GET /api/system", s.system)
 	a("POST /api/system/php/{v}", s.installPHP)
+	a("POST /api/system/php-updates/check", s.checkPHPUpdates)
+	a("POST /api/system/php-updates/apply", s.applyPHPUpdates)
 	a("POST /api/system/apply", s.reapply)
 	a("POST /api/update", s.startUpdate)
 
@@ -227,7 +245,7 @@ func writeStoreErr(w http.ResponseWriter, err error) {
 }
 
 func readJSON(r *http.Request, v any) error {
-	dec := json.NewDecoder(io.LimitReader(r.Body, 4<<20))
+	dec := json.NewDecoder(io.LimitReader(r.Body, 8<<20))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		return errors.New("invalid JSON: " + err.Error())
