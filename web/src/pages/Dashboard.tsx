@@ -1,0 +1,81 @@
+import { Link, useNavigate } from 'react-router-dom';
+import { ago, bytes, Disk, Event, get, Job, Service, Site } from '../api';
+import { Badge, ErrorBox, Icon, JobBadge, Loading, StatusBadge, TypeBadge, useLoad } from '../ui';
+
+interface Dash {
+  sites: number; counts: Record<string, number>; attention: Site[]; services: Service[]; disks: Disk[];
+  backups: number; backup_bytes: number; jobs: Job[]; events: Event[];
+  settings: { backup_enabled: boolean; backup_time: string; trusted_proxies: string[] | null; halyard: boolean };
+}
+
+export function ServiceList({ services }: { services: Service[] }) {
+  return (
+    <table><tbody>{services.map((s) => (
+      <tr key={s.name}><td>{s.label}</td><td className="mono dim">{s.name}</td>
+        <td style={{ textAlign: 'right' }}>{s.active === 'active' ? <Badge kind="g">● Running</Badge> : s.active === 'unknown' ? <Badge kind="n">Unknown</Badge> : <Badge kind="b">● {s.active}</Badge>}</td></tr>
+    ))}</tbody></table>
+  );
+}
+
+export function DiskBars({ disks }: { disks: Disk[] }) {
+  return <>{disks.map((d) => {
+    const used = d.total - d.free;
+    const pct = d.total ? Math.round((used / d.total) * 100) : 0;
+    return (
+      <div key={d.path} style={{ marginBottom: 14 }}>
+        <div className="meter-k"><span className="mono">{d.path}</span><b>{bytes(used)} of {bytes(d.total)}</b></div>
+        <div className="bar"><i style={{ width: pct + '%', background: pct > 90 ? 'var(--bad)' : pct > 75 ? 'var(--warn)' : 'var(--accent2)' }} /></div>
+      </div>
+    );
+  })}</>;
+}
+
+export default function Dashboard() {
+  const { data, error } = useLoad(() => get<Dash>('/dashboard'), [], 15000);
+  const nav = useNavigate();
+  if (!data) return error ? <ErrorBox error={error} /> : <Loading />;
+  const down = data.services.filter((s) => s.active !== 'active' && s.active !== 'unknown');
+  return (
+    <>
+      <div className="head">
+        <div><h1>Dashboard</h1><div className="sub">Your sites, the services behind them and what happened lately.</div></div>
+        <Link to="/sites/new" className="btn p"><Icon name="plus" />New site</Link>
+      </div>
+      {down.length > 0 && <div className="err">Not running: {down.map((s) => s.label).join(', ')}. Sites that use them are down.</div>}
+      {!data.settings.trusted_proxies?.length && <div className="warnbox">No trusted proxies are set, so sites see the load balancer's address instead of the visitor's and cannot tell HTTPS from HTTP. Add your Halyard nodes on the <Link to="/settings">Settings</Link> page.</div>}
+      <div className="row" style={{ marginBottom: 16 }}>
+        <Link to="/sites" className="card stat mon-tile"><div className="k"><Icon name="site" size={14} />Sites</div><div className="v">{data.sites}</div><div className="d muted">{data.counts.wordpress ?? 0} WordPress · {(data.counts.php_db ?? 0) + (data.counts.php ?? 0)} PHP</div></Link>
+        <Link to="/backups" className="card stat mon-tile"><div className="k"><Icon name="backup" size={14} />Backups</div><div className="v">{data.backups}</div><div className="d muted">{bytes(data.backup_bytes)} · {data.settings.backup_enabled ? `nightly at ${data.settings.backup_time}` : 'nightly off'}</div></Link>
+        <Link to="/system" className="card stat mon-tile"><div className="k"><Icon name="server" size={14} />Services</div><div className="v">{data.services.length - down.length}/{data.services.length}</div><div className="d muted">running</div></Link>
+      </div>
+      <div className="row" style={{ alignItems: 'flex-start' }}>
+        <div className="stack" style={{ flex: 3, minWidth: 0 }}>
+          {data.attention.length > 0 && <div className="card">
+            <div className="ch"><h3>Needs attention</h3></div>
+            <table><tbody>{data.attention.map((s) => (
+              <tr key={s.id} className="click" onClick={() => nav('/sites/' + s.id)}><td><b>{s.domain}</b><div className="dim" style={{ fontSize: 12 }}>{s.status_error || 'Disabled'}</div></td><td><TypeBadge type={s.type} /></td><td style={{ textAlign: 'right' }}><StatusBadge status={s.status} enabled={s.enabled} /></td></tr>
+            ))}</tbody></table>
+          </div>}
+          <div className="card">
+            <div className="ch"><h3>Recent jobs</h3><Link to="/activity" className="btn s ghost">All activity</Link></div>
+            {data.jobs.length === 0 ? <div className="empty">Nothing yet. Create your first site.</div> :
+              <table><tbody>{data.jobs.map((j) => (
+                <tr key={j.id} className="click" onClick={() => nav('/activity?job=' + j.id)}><td style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>{j.title}{j.error && <div className="dim" style={{ fontSize: 12, maxHeight: 36, overflow: 'hidden' }}>{j.error.split('\n')[0]}</div>}</td><td className="muted" style={{ whiteSpace: 'nowrap' }}>{ago(j.started)}</td><td style={{ textAlign: 'right' }}><JobBadge status={j.status} /></td></tr>
+              ))}</tbody></table>}
+          </div>
+          <div className="card">
+            <div className="ch"><h3>Activity</h3></div>
+            {data.events.length === 0 ? <div className="empty">No activity yet.</div> :
+              <table><tbody>{data.events.map((e) => (
+                <tr key={e.id}><td>{e.level === 'error' ? <span className="dot b" /> : e.level === 'warn' ? <span className="dot w" /> : <span className="dot g" />}</td><td style={{ whiteSpace: 'normal' }}>{e.message}</td><td className="muted" style={{ textAlign: 'right' }}>{ago(e.time)}</td></tr>
+              ))}</tbody></table>}
+          </div>
+        </div>
+        <div className="stack" style={{ flex: 2, minWidth: 0 }}>
+          <div className="card"><div className="ch"><h3>Services</h3></div><ServiceList services={data.services} /></div>
+          <div className="card"><div className="ch"><h3>Disk</h3></div><div className="cb"><DiskBars disks={data.disks} /></div></div>
+        </div>
+      </div>
+    </>
+  );
+}
