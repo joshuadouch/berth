@@ -21,6 +21,8 @@ import (
 	"github.com/joshuadouch/berth/internal/auth"
 	"github.com/joshuadouch/berth/internal/config"
 	"github.com/joshuadouch/berth/internal/engine"
+	"github.com/joshuadouch/berth/internal/plugin"
+	"github.com/joshuadouch/berth/internal/plugins"
 	"github.com/joshuadouch/berth/internal/render"
 	"github.com/joshuadouch/berth/internal/store"
 	"github.com/joshuadouch/berth/internal/web"
@@ -110,7 +112,8 @@ func serve(cfgPath string) error {
 			return err
 		}
 	}
-	srv := &api.Server{Cfg: cfg, Store: st, Engine: eng, Log: log, UI: web.FS(), Version: version}
+	srv := &api.Server{Cfg: cfg, Store: st, Engine: eng, Log: log, UI: web.FS(), Version: version,
+		Plugins: plugin.NewRegistry(st, log, plugins.All()...)}
 	hs := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           srv.Handler(),
