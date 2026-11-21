@@ -41,6 +41,9 @@ const P: Record<string, ReactNode> = {
   zip: <><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z" /><path d="M14 3v5h5M10 5h2M10 8h2M10 11h2M10 14h2v3h-2z" /></>,
   search: <><circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" /></>,
   play: <path d="M7 4l13 8-13 8z" />,
+  mail: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 7l9 6 9-6" /></>,
+  plug: <><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4" /></>,
+  user: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>,
 };
 
 export function Icon({ name, size = 16 }: { name: string; size?: number }) {

@@ -132,3 +132,15 @@ export function nameFromDomain(d: string): string {
 }
 
 export function siteURL(s: Site) { return (s.https ? 'https://' : 'http://') + s.domain; }
+
+// Plugins ------------------------------------------------------------------
+export interface PluginField {
+  key: string; label: string; type: 'text' | 'secret' | 'bool' | 'number' | 'select' | 'textarea'; section?: string;
+  help?: string; placeholder?: string; default?: unknown; options?: { value: string; label: string }[]; required?: boolean;
+}
+export interface PluginView {
+  id: string; name: string; description: string; version: string; icon: string; nav_label: string; fields: PluginField[];
+  enabled: boolean; config: Record<string, any>; secrets_set: Record<string, boolean>; can_test: boolean;
+}
+// Other parts of the UI (the sidebar) listen for this after plugins change.
+export const pluginsChanged = () => window.dispatchEvent(new Event('berth-plugins'));

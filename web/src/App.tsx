@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useResponsiveTables } from './responsive';
-import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
-import { get, post, setUnauthorizedHandler, User } from './api';
+import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { get, PluginView, post, setUnauthorizedHandler, User } from './api';
 import { Icon, Logo, ToastProvider } from './ui';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -12,18 +12,27 @@ import Backups from './pages/Backups';
 import Activity from './pages/Activity';
 import System from './pages/System';
 import Settings from './pages/Settings';
+import Plugins, { PluginPage, pluginPages } from './pages/Plugins';
 
 export interface Me { user: User; name: string; version: string }
 
-const nav = [
+// Enabled plugins with a page add sidebar entries after Sites.
+const buildNav = (plugins: PluginView[]) => [
   ['Overview'], ['/', 'dash', 'Dashboard'],
-  ['Hosting'], ['/sites', 'site', 'Sites'], ['/backups', 'backup', 'Backups'], ['/activity', 'pulse', 'Activity'],
-  ['Platform'], ['/system', 'server', 'System'], ['/settings', 'set', 'Settings'],
+  ['Hosting'], ['/sites', 'site', 'Sites'],
+  ...plugins.filter((p) => p.enabled && p.nav_label && pluginPages[p.id]).map((p) => ['/p/' + p.id, p.icon || 'plug', p.nav_label]),
+  ['/backups', 'backup', 'Backups'], ['/activity', 'pulse', 'Activity'],
+  ['Platform'], ['/system', 'server', 'System'], ['/plugins', 'plug', 'Plugins'], ['/settings', 'set', 'Settings'],
 ];
 
 const titles: Record<string, string> = {
-  '': 'Dashboard', sites: 'Sites', backups: 'Backups', activity: 'Activity', system: 'System', settings: 'Settings',
+  '': 'Dashboard', sites: 'Sites', backups: 'Backups', activity: 'Activity', system: 'System', settings: 'Settings', plugins: 'Plugins',
 };
+
+function PluginRoute() {
+  const { id } = useParams();
+  return <PluginPage id={id ?? ''} />;
+}
 
 function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const loc = useLocation();
@@ -37,6 +46,15 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     return () => window.removeEventListener('keydown', h);
   }, [menu]);
   useResponsiveTables();
+  const [plugins, setPlugins] = useState<PluginView[]>([]);
+  useEffect(() => {
+    const load = () => get<PluginView[]>('/plugins').then(setPlugins).catch(() => undefined);
+    load();
+    window.addEventListener('berth-plugins', load);
+    return () => window.removeEventListener('berth-plugins', load);
+  }, []);
+  const nav = buildNav(plugins);
+  const title = section === 'p' ? plugins.find((p) => p.id === loc.pathname.split('/')[2])?.nav_label ?? '' : titles[section] ?? '';
   const [newer, setNewer] = useState('');
   useEffect(() => {
     const check = () => get<{ update: { current: string; latest: string } }>('/system')
@@ -70,7 +88,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
       <div className="main">
         <div className="top">
           <button className="menubtn" onClick={() => setMenu(true)} aria-label="Open menu"><Icon name="menu" size={20} /></button>
-          <div className="crumb"><b>{titles[section] ?? ''}</b></div>
+          <div className="crumb"><b>{title}</b></div>
           <div className="avatar" style={{ marginLeft: 'auto' }} title={me.user.username}>{me.user.username.slice(0, 2).toUpperCase()}</div>
         </div>
         <div className="content">
@@ -83,6 +101,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <Route path="/activity" element={<Activity />} />
             <Route path="/system" element={<System />} />
             <Route path="/settings" element={<Settings me={me} />} />
+            <Route path="/plugins" element={<Plugins />} />
+            <Route path="/p/:id" element={<PluginRoute />} />
+            <Route path="/p/:id/:sub" element={<PluginRoute />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </div>

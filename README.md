@@ -48,6 +48,9 @@ site.
   updates checked daily and installed in one click.
 - **SFTP per site**, locked into the site's folder, with a password or SSH keys.
 - **Logs.** Access, nginx error and PHP error logs for each site in the UI.
+- **Plugins.** Extra features you switch on from the Plugins page. The first is
+  **Mailcow**: mail domains, mailboxes and aliases, with outgoing mail sent
+  through Amazon SES (see below).
 - PHP version, memory, upload limit and workers per site; extra domains with an
   optional redirect to the main one; take a site offline with a 503 page.
 
@@ -178,6 +181,46 @@ from the site's Backups tab.
 Turn on SFTP in a site's settings, then set a password on its Overview tab or
 paste SSH keys. Log in as `site_<name>` on port 22; you land in the site's
 folder and cannot leave it. Upload into `public`.
+
+## Plugins
+
+Plugins are built into the binary and switched on under **Platform → Plugins**.
+Each declares its settings (secrets are never sent back to the browser) and may
+add a page to the sidebar. To write one, implement `plugin.Plugin` in a package
+under `internal/plugins`, add it to `plugins.All`, and for a page of its own
+add a component to `pluginPages` in `web/src/pages/Plugins.tsx`. Its API is
+served under `/api/p/<id>/` while it is on.
+
+### Mailcow
+
+Manages a [mailcow](https://mailcow.email) server: mail domains, mailboxes
+(passwords made for you if left blank), aliases and catch-alls. Adding a domain:
+
+1. creates it in mailcow and generates a 2048-bit DKIM key;
+2. adds it to **Amazon SES** as a domain identity with Easy DKIM and a custom
+   MAIL FROM (`bounce.<domain>`), so SPF and DKIM align for DMARC;
+3. creates the DNS records in **Cloudflare** if you give it a token: MX, SPF,
+   mailcow DKIM, the three SES DKIM CNAMEs, MAIL FROM MX and SPF, DMARC
+   (only when there is none) and autodiscover/autoconfig. Records that already
+   exist with other values are never changed; they show as clashes. Without a
+   token the page lists the records to add yourself;
+4. once SES has verified the domain (Berth checks every five minutes), turns on
+   mailcow's **sender-dependent transport** to `email-smtp.<region>.amazonaws.com:587`
+   for that domain. Until then mail goes out directly from mailcow, so nothing
+   bounces while SES is still verifying. Each domain can be switched between
+   SES and direct sending on its page.
+
+Setup:
+
+- mailcow: **System → Configuration → Access → API**, a read-write key, with
+  Berth's IP in the allowed networks.
+- AWS: an IAM user with `ses:CreateEmailIdentity`, `ses:GetEmailIdentity`,
+  `ses:DeleteEmailIdentity`, `ses:PutEmailIdentityMailFromAttributes`,
+  `ses:GetAccount` and `ses:SendRawEmail`. Berth derives the SES SMTP password
+  from its secret key, so one key does both (or enter separate SMTP
+  credentials). A new SES account is in the sandbox until AWS grants production
+  access; the Test button tells you.
+- Cloudflare (optional): a token with **Zone → DNS → Edit** on the mail domains.
 
 ## Updating
 

@@ -18,6 +18,7 @@ import (
 	"github.com/joshuadouch/berth/internal/config"
 	"github.com/joshuadouch/berth/internal/engine"
 	"github.com/joshuadouch/berth/internal/model"
+	"github.com/joshuadouch/berth/internal/plugin"
 	"github.com/joshuadouch/berth/internal/store"
 )
 
@@ -30,6 +31,7 @@ type Server struct {
 	UI      fs.FS
 	Access  *auth.AccessVerifier
 	Version string
+	Plugins *plugin.Registry
 
 	limiter *loginLimiter
 }
@@ -44,6 +46,9 @@ const sessionCookie = "berth_session"
 func (s *Server) Handler() http.Handler {
 	if s.Access == nil {
 		s.Access = &auth.AccessVerifier{}
+	}
+	if s.Plugins == nil {
+		s.Plugins = plugin.NewRegistry(s.Store, s.Log)
 	}
 	s.limiter = &loginLimiter{fails: map[string][]time.Time{}}
 	mux := http.NewServeMux()
@@ -121,6 +126,11 @@ func (s *Server) Handler() http.Handler {
 	a("POST /api/system/apply", s.reapply)
 	a("POST /api/update", s.startUpdate)
 	a("POST /api/update/check", s.checkUpdate)
+
+	a("GET /api/plugins", s.listPlugins)
+	a("PUT /api/plugins/{id}", s.savePlugin)
+	a("POST /api/plugins/{id}/test", s.testPlugin)
+	mux.Handle("/api/p/{id}/", s.requireAuth(s.Plugins.ServeHTTP))
 
 	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "no such endpoint")
