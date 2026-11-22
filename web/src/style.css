@@ -415,3 +415,9 @@ a.mon-tile:hover{border-color:var(--line2)}
 .kv>div{min-width:0;overflow-wrap:anywhere}
 .stat .k .ic{width:28px;height:28px;border-radius:8px}
 .foot .muted{color:rgba(255,255,255,.62)}
+.vulnlist{border-top:1px solid var(--line)}
+.vulnrow{display:flex;align-items:flex-start;gap:14px;padding:13px 20px;border-bottom:1px solid var(--line)}
+.vulnrow:last-child{border-bottom:none}
+.vulnmain{flex:1;min-width:0;overflow-wrap:anywhere}
+.vulnrow>.badge{flex:none;margin-top:2px;white-space:nowrap}
+.vulnmain a{white-space:nowrap;display:inline-block}
