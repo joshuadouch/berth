@@ -47,6 +47,11 @@ type Engine struct {
 	// Plugins says which plugins are on for an account. Nil means every
 	// plugin is on (tests).
 	Plugins PluginSwitch
+	// ACMEDirectory, ACMEHTTP and SkipACMEPreflight point certificate
+	// requests at a test CA.
+	ACMEDirectory     string
+	ACMEHTTP          *http.Client
+	SkipACMEPreflight bool
 
 	applyMu sync.Mutex
 	siteMu  sync.Map // site name -> *sync.Mutex
@@ -72,7 +77,15 @@ func (e *Engine) Paths() render.Paths {
 	return render.Paths{
 		SitesDir: e.Cfg.SitesDir, LogDir: e.Cfg.LogDir, NginxConf: e.Cfg.Nginx.ConfDir,
 		PoolDir: e.Cfg.PHP.PoolDir, SocketTmpl: e.Cfg.PHP.Socket, IPv6: e.Cfg.Nginx.IPv6,
+		ACMEDir: e.Cfg.ACMEDir, CertDir: e.certDir(),
 	}
+}
+
+func (e *Engine) certDir() string {
+	if e.Cfg.CertDir != "" {
+		return e.Cfg.CertDir
+	}
+	return e.Cfg.Path("certs")
 }
 
 // lockSite serialises work on one site.
@@ -129,6 +142,13 @@ func (e *Engine) renderable(ctx context.Context) ([]model.Site, error) {
 		}
 		if !e.Cfg.DryRun && (!userExists(s.User()) || !e.PHPInstalled(s.PHPVersion)) {
 			continue
+		}
+		// A certificate that is missing on disk (a restored panel, say) would
+		// stop nginx from loading: serve plain HTTP until it is issued again.
+		if s.ServesTLS() && !e.Cfg.DryRun {
+			if _, err := os.Stat(e.Paths().CertFile(s.Name)); err != nil {
+				s.TLS.Status = model.TLSPending
+			}
 		}
 		out = append(out, s)
 	}

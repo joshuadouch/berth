@@ -21,6 +21,7 @@ func testEngine(t *testing.T) *Engine {
 	cfg.Nginx.ConfDir = filepath.Join(dir, "nginx")
 	cfg.PHP.PoolDir = filepath.Join(dir, "php", "{v}")
 	cfg.DryRun = true
+	cfg.ACMEDir = filepath.Join(dir, "acme")
 	_ = os.MkdirAll(cfg.DataDir, 0o755)
 	st, err := store.Open(filepath.Join(cfg.DataDir, "berth.db"))
 	if err != nil {

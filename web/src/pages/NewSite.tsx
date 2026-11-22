@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMe } from '../me';
-import { AccountView, PluginView, bytes, del, exposureLabel, get, HalyardInfo, Job, nameFromDomain, post, Settings, Site, SiteType, upload, UploadInfo, vipLabel } from '../api';
+import { AccountView, PluginView, bytes, del, exposureLabel, get, HalyardInfo, Job, nameFromDomain, post, Serve, serveFields, Settings, Site, SiteType, upload, UploadInfo, vipLabel } from '../api';
 import { Chips, Copyable, ErrorBox, Field, Icon, JobView, Loading, Toggle, useLoad } from '../ui';
 
 const types: { v: SiteType; icon: string; title: string; text: string }[] = [
@@ -22,7 +22,7 @@ export default function NewSite() {
   const [aliases, setAliases] = useState<string[]>([]);
   const [redirect, setRedirect] = useState(true);
   const [php, setPhp] = useState('');
-  const [https, setHttps] = useState(true);
+  const [serve, setServe] = useState<Serve | ''>('');
   const [title, setTitle] = useState('');
   const [adminUser, setAdminUser] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
@@ -71,13 +71,17 @@ export default function NewSite() {
   const importing = imp && (!!impFiles || (hasDB && !!impDB));
   const importReady = !imp || (type === 'wordpress' ? !!impFiles && !!impDB : importing);
   const halyardReady = halyardOn && !!hal.data?.configured && !hal.data.error && hal.data.pool_ok;
+  // Sites published on Halyard leave HTTPS to it; others get a Let's Encrypt certificate.
+  const serveChoice: Serve = serve || (halyardReady && publish ? 'proxy' : 'local');
+  const https = serveChoice !== 'http';
+  const halyardCert = !!cfg.data?.settings.halyard.auto_cert;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setErr(null);
     setBusy(true);
     try {
       const body: any = {
-        type, domain: domain.trim(), name, aliases, redirect_aliases: redirect, php_version: php, https, enabled: true,
+        type, domain: domain.trim(), name, aliases, redirect_aliases: redirect, php_version: php, ...serveFields(serveChoice), enabled: true,
         doc_root: docRoot, front_controller: front, backups, sftp: { enabled: false, keys: [] },
       };
       if (isAdmin && account) body.account_id = account;
@@ -163,8 +167,9 @@ export default function NewSite() {
               </select>
             </Field>
             <Field label="Visitors use">
-              <select className="input" value={https ? 'https' : 'http'} onChange={(e) => setHttps(e.target.value === 'https')}>
-                <option value="https">{isAdmin ? 'HTTPS (Halyard or Cloudflare ends TLS)' : 'HTTPS'}</option>
+              <select className="input" value={serveChoice} onChange={(e) => setServe(e.target.value as Serve)}>
+                <option value="local">HTTPS (free Let's Encrypt certificate)</option>
+                {isAdmin && <option value="proxy">HTTPS (Halyard or Cloudflare in front ends it)</option>}
                 <option value="http">HTTP only</option>
               </select>
             </Field>
@@ -173,7 +178,7 @@ export default function NewSite() {
             <select className="input" value={account} onChange={(e) => setAccount(e.target.value)}>
               {accounts.data!.map((a) => <option key={a.id} value={a.id}>{a.name}{a.id === me?.user.account_id ? ' (you)' : ''}</option>)}</select></Field>}
           {halyardReady && <>
-            <Toggle on={publish} onChange={setPublish} label="Publish on Halyard" help={https && cfg.data?.settings.halyard.auto_cert ? 'Adds a Halyard host for these domains and requests a certificate if none covers them.' : 'Adds a Halyard host for these domains.'} />
+            <Toggle on={publish} onChange={setPublish} label="Publish on Halyard" help={https && halyardCert ? 'Adds a Halyard host for these domains and requests a certificate if none covers them.' : 'Adds a Halyard host for these domains.'} />
             {publish && <div className="grid2">
               <Field label="VIP"><select className="input" value={vip} onChange={(e) => setVip(e.target.value)}>
                 <option value="">Choose a VIP</option>

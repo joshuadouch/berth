@@ -6,12 +6,18 @@ export interface SFTP { enabled: boolean; keys: string[] | null; password_set: b
 export interface HalyardLink { enabled: boolean; host_id: string; vip_id: string; exposure: string; cert_id: string; no_dns: boolean; error: string }
 export interface Site {
   id: string; name: string; type: SiteType; domain: string; aliases: string[] | null; php_version: string; doc_root: string;
-  redirect_aliases: boolean; front_controller: boolean; https: boolean; enabled: boolean; upload_mb: number; memory_mb: number;
+  redirect_aliases: boolean; front_controller: boolean; https: boolean; tls_mode: '' | 'local'; tls: SiteTLS; enabled: boolean; upload_mb: number; memory_mb: number;
   max_children: number; backups: boolean; db?: Database; wp?: WordPress; sftp: SFTP; halyard: HalyardLink; status: string;
   status_error: string; notes: string; created_at: string; nginx_custom?: string; account_id: string;
   php: PHPSettings; auto_update: AutoUpdate; no_monitor: boolean;
   import?: { files: string; files_name: string; db: string; db_name: string };
 }
+export interface SiteTLS { status: 'none' | 'pending' | 'active' | 'error' | ''; error?: string; domains?: string[]; issued?: string; expires?: string; fails?: number; next_try?: string }
+export interface ACMESettings { email: string; staging: boolean; off: boolean }
+// Who serves a site to visitors: Berth with Let's Encrypt, a proxy in front, or plain HTTP.
+export type Serve = 'local' | 'proxy' | 'http';
+export const serveOf = (s: { https: boolean; tls_mode: string }): Serve => (!s.https ? 'http' : s.tls_mode === 'local' ? 'local' : 'proxy');
+export const serveFields = (v: Serve) => ({ https: v !== 'http', tls_mode: (v === 'local' ? 'local' : '') as '' | 'local' });
 export interface PHPSettings { max_execution: number; max_input_vars: number; max_input_time: number; custom?: string }
 export interface AutoUpdate { enabled: boolean; day: string; time: string; core: boolean; plugins: boolean; themes: boolean; rollback: boolean }
 export interface UptimeState { down: boolean; since: string; fails: number; last_error?: string; last_check: string; last_ms: number }
@@ -49,6 +55,7 @@ export interface Settings {
   access_team: string; access_aud: string; access_emails: string[] | null;
   halyard: HalyardSettings;
   s3: S3Settings;
+  acme: ACMESettings;
   cloudflare_token?: string; no_uptime: boolean; no_vuln_scan: boolean;
 }
 

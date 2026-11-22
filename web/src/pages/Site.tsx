@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { AccountView, ago, Backup, bytes, del, exposureLabel, fmtDate, get, HalyardInfo, Job, post, put, Site, SiteDetail, siteURL, typeLabel, vipLabel, WPInfo } from '../api';
+import { AccountView, ago, Backup, bytes, del, exposureLabel, fmtDate, get, HalyardInfo, Job, post, put, Serve, serveFields, serveOf, Site, SiteDetail, siteURL, typeLabel, vipLabel, WPInfo } from '../api';
 import { useMe } from '../me';
 import FilesTab from './Files';
 import DatabaseTab from './Database';
@@ -56,7 +56,7 @@ export default function SitePage() {
           <div>Disk<b>{bytes(d.data.usage.files + d.data.usage.db)}</b></div>
           <div>Last backup<b>{d.data.backups[0] ? ago(d.data.backups[0].time) : 'none'}</b></div>
           <div>Uptime check<b>{!d.data.uptime ? 'not yet' : d.data.uptime.down ? 'down ' + ago(d.data.uptime.since).replace(' ago', '') : 'up ' + ago(d.data.uptime.since).replace(' ago', '')}</b></div>
-          <div>HTTPS<b>{s.https ? 'On' : 'Off'}</b></div>
+          <div>HTTPS<b>{httpsLabel(s)}</b></div>
         </div>
       </div>
       {s.status === 'error' && <div className="err">Creating this site failed: {s.status_error}. Fix the cause (see the Activity tab) and press Retry.</div>}
@@ -95,6 +95,7 @@ function Overview({ d, reload, startJob }: { d: SiteDetail; reload: () => void; 
           <div>Last backup</div><div>{d.backups[0] ? ago(d.backups[0].time) : 'none'}{!s.backups && <span className="dim"> (nightly off)</span>}</div>
           {s.notes && <><div>Notes</div><div style={{ whiteSpace: 'pre-wrap' }}>{s.notes}</div></>}
         </div></div>
+        {localTLS(s) && <CertCard s={s} startJob={startJob} />}
         <div className="card"><div className="ch"><h3>Files</h3>
           <button className="btn s" onClick={() => act(post('/sites/' + s.id + '/fix-permissions'), 'Ownership fixed')}>Fix permissions</button></div>
           <div className="cb kv">
@@ -211,8 +212,10 @@ function SettingsTab({ s, sftp, onSaved }: { s: Site; sftp: boolean; onSaved: (j
         <Field label="Other domains"><Chips values={f.aliases ?? []} onChange={(v) => set({ aliases: v })} placeholder="www.example.com" mono /></Field>
         {(f.aliases?.length ?? 0) > 0 && <Toggle on={f.redirect_aliases} onChange={(v) => set({ redirect_aliases: v })} label="Redirect other domains to the main domain" />}
         <Field label="Visitors use">
-          <select className="input" value={f.https ? 'https' : 'http'} onChange={(e) => set({ https: e.target.value === 'https' })}>
-            <option value="https">{isAdmin ? 'HTTPS (Halyard or Cloudflare ends TLS)' : 'HTTPS'}</option><option value="http">HTTP only</option>
+          <select className="input" value={f.halyard.enabled && f.https ? 'proxy' : serveOf(f)} onChange={(e) => set(serveFields(e.target.value as Serve))}>
+            {!f.halyard.enabled && <option value="local">HTTPS (free Let's Encrypt certificate)</option>}
+            {(isAdmin || serveOf(f) === 'proxy') && <option value="proxy">{f.halyard.enabled ? 'HTTPS (Halyard ends it)' : 'HTTPS (Halyard or Cloudflare in front ends it)'}</option>}
+            <option value="http">HTTP only</option>
           </select>
         </Field>
         {urlChanged && s.type === 'wordpress' && <Toggle on={replace} onChange={setReplace} label={`Change ${siteURL(s)} to ${siteURL(f)} in the WordPress database`} help="Runs wp search-replace and updates the home and site URLs. Leave on unless you are doing it yourself." />}
@@ -497,4 +500,38 @@ function WPAdminButton({ site }: { site: Site }) {
     }
   };
   return <button className="btn white" onClick={open} disabled={busy} title="Opens WP admin logged in, no password needed"><Icon name="wp" />{busy ? 'Opening…' : 'WP admin'}</button>;
+}
+
+const localTLS = (s: Site) => s.https && s.tls_mode === 'local' && !s.halyard.enabled;
+
+function httpsLabel(s: Site) {
+  if (!s.https) return 'Off';
+  if (!localTLS(s)) return 'On';
+  switch (s.tls?.status) {
+    case 'active': return 'On';
+    case 'error': return 'Failing';
+    default: return 'Waiting';
+  }
+}
+
+// CertCard shows the site's Let's Encrypt certificate.
+function CertCard({ s, startJob }: { s: Site; startJob: (p: Promise<{ job_id: number }>, m?: string) => void }) {
+  const t = s.tls ?? { status: '' };
+  const days = t.expires ? Math.floor((new Date(t.expires).getTime() - Date.now()) / 86400000) : 0;
+  const badge = t.status === 'active' ? <Badge kind="g">Valid</Badge> : t.status === 'error' ? <Badge kind="b">Failed</Badge> : <Badge kind="n">Not issued yet</Badge>;
+  return (
+    <div className="card"><div className="ch"><h3>HTTPS certificate</h3>{badge}</div><div className="cb">
+      {t.status === 'active' ? <div className="kv">
+        <div>Issuer</div><div>Let's Encrypt</div>
+        <div>Covers</div><div className="mono" style={{ fontSize: 12.5 }}>{(t.domains ?? []).join(', ')}</div>
+        <div>Expires</div><div>{fmtDate(t.expires!)} <span className="dim">({days} day{days === 1 ? '' : 's'}; renews 30 days before)</span></div>
+      </div> : <p className="muted" style={{ marginBottom: 12 }}>
+        {t.status === 'error' ? <>The last request failed: <span className="mono" style={{ fontSize: 12.5 }}>{t.error}</span></> : 'Berth requests a free certificate once the site is live.'}
+        {' '}The domains must point at this server, with ports 80 and 443 open.
+        {t.next_try && t.status === 'error' && <> Berth tries again {fmtDate(t.next_try)}.</>}
+      </p>}
+      {s.status === 'active' && <button className="btn s" style={{ marginTop: t.status === 'active' ? 12 : 0 }} onClick={() => startJob(post('/sites/' + s.id + '/tls'), 'Requesting a certificate')}>
+        <Icon name="sync" />{t.status === 'active' ? 'Renew now' : 'Request now'}</button>}
+    </div></div>
+  );
 }

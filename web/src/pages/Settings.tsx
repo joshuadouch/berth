@@ -79,6 +79,7 @@ export default function Settings({ me }: { me: Me }) {
         </div>
         <div className="stack">
           <MonitoringCard f={f} set={set} />
+          <ACMECard f={f} set={set} />
           <AccountCard me={me} />
         </div>
       </div>
@@ -91,6 +92,19 @@ function MonitoringCard({ f, set }: { f: S; set: (p: Partial<S>) => void }) {
     <div className="card"><div className="ch"><h3>Monitoring</h3></div><div className="cb">
       <Toggle on={!f.no_uptime} onChange={(v) => set({ no_uptime: !v })} label="Uptime checks" help="Request every live site once a minute and log outages in Activity. Turn off single sites on their Settings tab." />
       <Toggle on={!f.no_vuln_scan} onChange={(v) => set({ no_vuln_scan: !v })} label="Daily vulnerability check" help="Compare WordPress, plugins and themes with the free WPVulnerability database once a day." />
+    </div></div>
+  );
+}
+
+function ACMECard({ f, set }: { f: S; set: (p: Partial<S>) => void }) {
+  const a = f.acme ?? { email: '', staging: false, off: false };
+  const seta = (p: Partial<typeof a>) => set({ acme: { ...a, ...p } });
+  return (
+    <div className="card"><div className="ch"><h3>HTTPS certificates</h3></div><div className="cb">
+      <p className="muted" style={{ marginBottom: 12 }}>Sites set to "HTTPS (free Let's Encrypt certificate)" get one automatically, renewed 30 days before it expires. Their domains must point at this server, with ports 80 and 443 open.</p>
+      <Field label="Contact email" help="Let's Encrypt writes here if a certificate is about to expire. Blank uses the first admin's email."><input className="input" value={a.email} onChange={(e) => seta({ email: e.target.value })} /></Field>
+      <Toggle on={a.staging} onChange={(v) => seta({ staging: v })} label="Use the staging server" help="For testing: browsers do not trust its certificates, but its rate limits are generous." />
+      <Toggle on={!a.off} onChange={(v) => seta({ off: !v })} label="Request certificates" help="Off stops new requests and renewals. Existing certificates keep working until they expire." />
     </div></div>
   );
 }

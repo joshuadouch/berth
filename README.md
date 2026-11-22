@@ -106,6 +106,26 @@ Options are environment variables: `BERTH_VERSION`, `BERTH_PHP` (default
 `8.4`), `BERTH_LISTEN`, `BERTH_BINARY` (use a binary you already copied) and
 `BERTH_NO_SFTP=1`.
 
+## HTTPS with Let's Encrypt
+
+A site set to **HTTPS (free Let's Encrypt certificate)** gets its certificate
+from Let's Encrypt as soon as it is live, and Berth renews it 30 days before it
+expires. Until the first one arrives the site answers on plain HTTP. Customers'
+HTTPS sites always work this way. For it to work:
+
+- every domain of the site points at this server, and
+- ports 80 and 443 reach it (the HTTP-01 challenge is served from
+  `/var/www/berth-acme` on port 80).
+
+A failed request is retried after an hour, then backs off to once a day; the
+error is on the site's Overview, where **Request now** tries again at once.
+Settings has the contact email, Let's Encrypt's staging server for testing,
+and a switch to stop requests. Certificates live in `/var/lib/berth/certs`.
+
+Sites published on Halyard (and admin sites set to **HTTPS (Halyard or
+Cloudflare in front ends it)**) keep the setup below: plain HTTP on port 80,
+with the proxy ending TLS.
+
 ## Behind Halyard
 
 Sites listen on plain HTTP port 80. Halyard terminates TLS and owns the

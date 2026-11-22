@@ -25,6 +25,10 @@ type Config struct {
 	SitesDir string `yaml:"sites_dir"`
 	// LogDir holds nginx logs per site.
 	LogDir string `yaml:"log_dir"`
+	// ACMEDir holds Let's Encrypt challenge files; nginx must be able to read
+	// it. CertDir holds sites' certificates ("" = <data_dir>/certs).
+	ACMEDir string `yaml:"acme_dir"`
+	CertDir string `yaml:"cert_dir"`
 
 	Nginx struct {
 		Binary    string `yaml:"binary"`
@@ -71,7 +75,7 @@ type Config struct {
 // Default returns a config with sensible defaults for a Debian install.
 func Default() *Config {
 	c := &Config{Listen: ":8443", DataDir: "/var/lib/berth", UpdateRepo: "joshuadouch/berth",
-		SitesDir: "/srv/sites", LogDir: "/var/log/berth"}
+		SitesDir: "/srv/sites", LogDir: "/var/log/berth", ACMEDir: "/var/www/berth-acme"}
 	c.Name, _ = os.Hostname()
 	c.Nginx.Binary = "/usr/sbin/nginx"
 	c.Nginx.ConfDir = "/etc/nginx/berth"
@@ -117,6 +121,9 @@ func (c *Config) check() error {
 	}
 	if c.Name == "" {
 		c.Name = "berth"
+	}
+	if c.CertDir == "" {
+		c.CertDir = c.Path("certs")
 	}
 	return nil
 }
