@@ -84,7 +84,7 @@ export function AnalyticsTab({ s }: { s: Site }) {
 function TrafficView({ s, range }: { s: Site; range: Range }) {
   const d = useLoad(() => get<{ hours: TrafficHour[]; top: Record<string, TopEntry[]>; visitors: Record<string, number> }>(`/sites/${s.id}/traffic?range=${range}`), [s.id, range], 60000);
   if (!d.data) return d.error ? <ErrorBox error={d.error} /> : <Loading />;
-  const { t, rows } = hourly(d.data.hours, range);
+  const { t, rows } = hourly(d.data.hours ?? [], range);
   const req = sum(rows, (h) => h.requests);
   const errs = sum(rows, (h) => h.s4 + h.s5);
   const s5 = sum(rows, (h) => h.s5);
@@ -132,7 +132,13 @@ function PerformanceView({ s, range }: { s: Site; range: Range }) {
   const d = useLoad(() => get<Perf>(`/sites/${s.id}/performance?range=${range}`), [s.id, range], 60000);
   const [open, setOpen] = useState<number | null>(null);
   if (!d.data) return d.error ? <ErrorBox error={d.error} /> : <Loading />;
-  const p = d.data;
+  const raw = d.data;
+  const logs = raw.logs ?? ({} as Partial<Perf['logs']>);
+  // Older servers sent null for empty lists.
+  const p: Perf = {
+    slow_requests: raw.slow_requests ?? [], slowest_pages: raw.slowest_pages ?? [], hours: raw.hours ?? [],
+    logs: { php_slow: logs.php_slow ?? [], culprits: logs.culprits ?? [], db_slow: logs.db_slow ?? [], db_slow_on: !!logs.db_slow_on, php_slow_log: logs.php_slow_log ?? '' },
+  };
   const { t, rows } = hourly(p.hours, range);
   const req = sum(rows, (h) => h.requests);
   const avg = req ? sum(rows, (h) => h.ms) / req : 0;

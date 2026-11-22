@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -72,5 +73,17 @@ func TestNewestVersion(t *testing.T) {
 	}
 	if got := newestVersion("version\n6.8.3\n", "6.8.3"); got != "" {
 		t.Fatalf("same version is not an update: %q", got)
+	}
+}
+
+func TestPerformanceNeverNull(t *testing.T) {
+	e := testEngine(t)
+	s := model.Site{Name: "blog", Type: model.TypeWordPress, DB: &model.Database{User: "site_blog"}}
+	dir := e.Paths().SiteDir(s.Name)
+	_ = os.MkdirAll(filepath.Join(dir, "logs"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "logs", "php-slow.log"), nil, 0o644) // FPM creates it empty
+	p := e.SitePerformance(context.Background(), s)
+	if p.PHPSlow == nil || p.Culprits == nil || p.DBSlow == nil {
+		t.Fatalf("lists must not be nil: %+v", p)
 	}
 }

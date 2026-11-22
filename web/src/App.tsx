@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useResponsiveTables } from './responsive';
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { get, PluginView, post, setUnauthorizedHandler, SiteDetail, SiteRow, User } from './api';
-import { Icon, Logo, SiteAvatar, ToastProvider } from './ui';
+import { Icon, Logo, PageBoundary, SiteAvatar, ToastProvider } from './ui';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Sites from './pages/Sites';
@@ -159,6 +159,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           <div className="avatar" title={me.user.username}>{me.user.username.slice(0, 2).toUpperCase()}</div>
         </div>
         <div className="content">
+          <PageBoundary resetKey={loc.pathname + loc.search}>
           <Routes>
             <Route path="/" element={<Dashboard me={me.user.username} />} />
             <Route path="/sites" element={<Sites />} />
@@ -173,6 +174,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <Route path="/p/:id/:sub" element={<PluginRoute />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
+          </PageBoundary>
         </div>
       </div>
     </>
