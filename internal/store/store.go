@@ -20,6 +20,9 @@ import (
 // ErrNotFound is returned when an object does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrNameTaken is returned when a username is already in use.
+var ErrNameTaken = errors.New("that username is taken")
+
 // Store wraps the SQLite database.
 type Store struct {
 	db *sql.DB
@@ -31,6 +34,7 @@ CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, email TEXT NOT NULL DEFAULT '',
   password_hash TEXT NOT NULL DEFAULT '', totp_secret TEXT NOT NULL DEFAULT '', totp_enabled INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, time TEXT NOT NULL, level TEXT NOT NULL, kind TEXT NOT NULL,
@@ -51,9 +55,47 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(schema + statsSchema); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := addColumns(db, "users", map[string]string{
+		"role":       "TEXT NOT NULL DEFAULT ''",
+		"account_id": "TEXT NOT NULL DEFAULT ''",
+	}); err != nil {
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	// Jobs that were running when Berth stopped will never finish.
 	_, _ = db.Exec(`UPDATE jobs SET status='failed', error='Berth restarted while this was running', finished=? WHERE status='running'`, now())
 	return &Store{db: db}, nil
+}
+
+// addColumns adds missing columns to a table.
+func addColumns(db *sql.DB, table string, cols map[string]string) error {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return err
+		}
+		have[n] = true
+	}
+	rows.Close()
+	names := make([]string, 0, len(cols))
+	for n := range cols {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		if have[n] {
+			continue
+		}
+		if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + n + ` ` + cols[n]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Close closes the database.
@@ -204,6 +246,36 @@ func (s *Store) Events(ctx context.Context, site string, limit int) ([]model.Eve
 	return out, rows.Err()
 }
 
+// EventsIn returns recent events of the named sites, newest first.
+func (s *Store) EventsIn(ctx context.Context, sites []string, limit int) ([]model.Event, error) {
+	out := []model.Event{}
+	if len(sites) == 0 {
+		return out, nil
+	}
+	args := make([]any, 0, len(sites)+1)
+	for _, n := range sites {
+		args = append(args, n)
+	}
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,time,level,kind,site,message FROM events WHERE site IN (`+marks(len(sites))+`) ORDER BY id DESC LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var e model.Event
+		var t string
+		if err := rows.Scan(&e.ID, &t, &e.Level, &e.Kind, &e.Site, &e.Message); err != nil {
+			return nil, err
+		}
+		e.Time = parseTime(t)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func marks(n int) string { return strings.TrimSuffix(strings.Repeat("?,", n), ",") }
+
 // Jobs ------------------------------------------------------------------------
 
 // StartJob records a new running job.
@@ -276,6 +348,32 @@ func (s *Store) Jobs(ctx context.Context, site string, limit int) ([]model.Job, 
 	return out, rows.Err()
 }
 
+// JobsIn lists recent jobs of the named sites, newest first, without logs.
+func (s *Store) JobsIn(ctx context.Context, sites []string, limit int) ([]model.Job, error) {
+	out := []model.Job{}
+	if len(sites) == 0 {
+		return out, nil
+	}
+	args := make([]any, 0, len(sites)+1)
+	for _, n := range sites {
+		args = append(args, n)
+	}
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+strings.Replace(jobCols, "log", "''", 1)+` FROM jobs WHERE site IN (`+marks(len(sites))+`) ORDER BY id DESC LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
+}
+
 // Users and sessions ----------------------------------------------------------
 
 // CountUsers returns how many users exist.
@@ -287,10 +385,13 @@ func (s *Store) CountUsers(ctx context.Context) (int, error) {
 
 // SaveUser inserts or replaces a user.
 func (s *Store) SaveUser(ctx context.Context, u model.User) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO users(id,username,email,password_hash,totp_secret,totp_enabled) VALUES(?,?,?,?,?,?)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO users(id,username,email,password_hash,totp_secret,totp_enabled,role,account_id) VALUES(?,?,?,?,?,?,?,?)
 	  ON CONFLICT(id) DO UPDATE SET username=excluded.username, email=excluded.email, password_hash=excluded.password_hash,
-	  totp_secret=excluded.totp_secret, totp_enabled=excluded.totp_enabled`,
-		u.ID, u.Username, u.Email, u.PasswordHash, u.TOTPSecret, boolInt(u.TOTPEnabled))
+	  totp_secret=excluded.totp_secret, totp_enabled=excluded.totp_enabled, role=excluded.role, account_id=excluded.account_id`,
+		u.ID, u.Username, u.Email, u.PasswordHash, u.TOTPSecret, boolInt(u.TOTPEnabled), u.Role, u.AccountID)
+	if err != nil && strings.Contains(err.Error(), "UNIQUE") {
+		return ErrNameTaken
+	}
 	return err
 }
 
@@ -301,16 +402,176 @@ func boolInt(b bool) int {
 	return 0
 }
 
-func (s *Store) userWhere(ctx context.Context, where string, arg any) (model.User, error) {
+const userCols = `id,username,email,password_hash,totp_secret,totp_enabled,role,account_id`
+
+func scanUser(sc interface{ Scan(...any) error }) (model.User, error) {
 	var u model.User
 	var totp int
-	err := s.db.QueryRowContext(ctx, `SELECT id,username,email,password_hash,totp_secret,totp_enabled FROM users WHERE `+where, arg).
-		Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.TOTPSecret, &totp)
+	err := sc.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.TOTPSecret, &totp, &u.Role, &u.AccountID)
+	u.TOTPEnabled = totp == 1
+	return u, err
+}
+
+func (s *Store) userWhere(ctx context.Context, where string, arg any) (model.User, error) {
+	u, err := scanUser(s.db.QueryRowContext(ctx, `SELECT `+userCols+` FROM users WHERE `+where, arg))
 	if errors.Is(err, sql.ErrNoRows) {
 		return u, ErrNotFound
 	}
-	u.TOTPEnabled = totp == 1
 	return u, err
+}
+
+// Users lists every user, optionally of one account, oldest first.
+func (s *Store) Users(ctx context.Context, accountID string) ([]model.User, error) {
+	q, args := `SELECT `+userCols+` FROM users`, []any{}
+	if accountID != "" {
+		q += ` WHERE account_id=?`
+		args = append(args, accountID)
+	}
+	rows, err := s.db.QueryContext(ctx, q+` ORDER BY rowid`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.User{}
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// DeleteUser removes a user and their sessions.
+func (s *Store) DeleteUser(ctx context.Context, id string) error {
+	s.DeleteUserSessions(ctx, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id=?`, id)
+	return err
+}
+
+// CountAdmins returns how many admin users exist.
+func (s *Store) CountAdmins(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE role=?`, model.RoleAdmin).Scan(&n)
+	return n, err
+}
+
+// Accounts ----------------------------------------------------------------------
+
+// SaveAccount inserts or replaces an account.
+func (s *Store) SaveAccount(ctx context.Context, a model.Account) error {
+	b, err := json.Marshal(a)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO accounts(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, a.ID, string(b))
+	return err
+}
+
+// Account loads one account.
+func (s *Store) Account(ctx context.Context, id string) (model.Account, error) {
+	var data string
+	err := s.db.QueryRowContext(ctx, `SELECT data FROM accounts WHERE id=?`, id).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Account{}, ErrNotFound
+	}
+	if err != nil {
+		return model.Account{}, err
+	}
+	var a model.Account
+	return a, json.Unmarshal([]byte(data), &a)
+}
+
+// Accounts lists every account, oldest first.
+func (s *Store) Accounts(ctx context.Context) ([]model.Account, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT data FROM accounts ORDER BY rowid`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.Account{}
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			return nil, err
+		}
+		var a model.Account
+		if err := json.Unmarshal([]byte(d), &a); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// DeleteAccount removes an account and its users.
+func (s *Store) DeleteAccount(ctx context.Context, id string) error {
+	users, err := s.Users(ctx, id)
+	if err != nil {
+		return err
+	}
+	for _, u := range users {
+		if err := s.DeleteUser(ctx, u.ID); err != nil {
+			return err
+		}
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM accounts WHERE id=?`, id)
+	return err
+}
+
+// MigrateAccounts moves a panel from before accounts existed: its users
+// become admins of one account that owns every site.
+func (s *Store) MigrateAccounts(ctx context.Context) error {
+	users, err := s.Users(ctx, "")
+	if err != nil || len(users) == 0 {
+		return err
+	}
+	accounts, err := s.Accounts(ctx)
+	if err != nil {
+		return err
+	}
+	var home string
+	if len(accounts) > 0 {
+		home = accounts[0].ID
+	}
+	for _, u := range users {
+		if u.AccountID != "" && u.Role != "" {
+			continue
+		}
+		if home == "" {
+			a := model.Account{ID: NewID(), Name: users[0].Username, Email: users[0].Email, CreatedAt: time.Now().UTC()}
+			if err := s.SaveAccount(ctx, a); err != nil {
+				return err
+			}
+			home = a.ID
+		}
+		if u.AccountID == "" {
+			u.AccountID = home
+		}
+		if u.Role == "" {
+			u.Role = model.RoleAdmin
+		}
+		if err := s.SaveUser(ctx, u); err != nil {
+			return err
+		}
+	}
+	if home == "" {
+		return nil
+	}
+	sites, err := s.Sites(ctx)
+	if err != nil {
+		return err
+	}
+	for _, site := range sites {
+		if site.AccountID == "" {
+			site.AccountID = home
+			if err := s.SaveSite(ctx, site); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // UserByName finds a user by username.
@@ -323,9 +584,9 @@ func (s *Store) UserByID(ctx context.Context, id string) (model.User, error) {
 	return s.userWhere(ctx, "id=?", id)
 }
 
-// FirstUser returns the oldest account (the admin).
+// FirstUser returns the oldest admin.
 func (s *Store) FirstUser(ctx context.Context) (model.User, error) {
-	return s.userWhere(ctx, "1=1 ORDER BY rowid LIMIT ?", 1)
+	return s.userWhere(ctx, "role='admin' ORDER BY rowid LIMIT ?", 1)
 }
 
 // CreateSession stores a login session.

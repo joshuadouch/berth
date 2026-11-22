@@ -6,8 +6,13 @@ Go binary with a web UI. It drives **nginx**, **PHP-FPM** (several versions side
 by side, from packages.sury.org), **MariaDB** and **WP-CLI** on one Debian
 machine.
 
-There are no hosting customers or reseller accounts: one admin manages every
-site.
+Berth also does shared hosting. Every site belongs to an **account**. The
+first login is an admin who runs the server; admins add customer accounts on
+the Accounts page, each with its own logins. Customers only see their own
+sites, backups and activity, and never the server's settings, plugins, Halyard
+or Cloudflare. Admins see every account and can move a site between them.
+Panels from before accounts existed are moved to one account owned by the
+existing admin on the first start.
 
 - **One-click WordPress.** Enter a domain and Berth creates the site, its
   database, installs WordPress, sets pretty permalinks and shows the admin

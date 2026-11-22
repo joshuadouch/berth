@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useResponsiveTables } from './responsive';
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { get, PluginView, post, setUnauthorizedHandler, SiteDetail, SiteRow, User } from './api';
+import { get, PluginView, post, setUnauthorizedHandler, SiteDetail, SiteRow } from './api';
 import { Icon, Logo, PageBoundary, SiteAvatar, ToastProvider } from './ui';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -13,20 +13,27 @@ import Activity from './pages/Activity';
 import System from './pages/System';
 import Settings from './pages/Settings';
 import Plugins, { PluginPage, pluginPages } from './pages/Plugins';
+import Accounts, { AccountPage } from './pages/Accounts';
+import MyAccount from './pages/MyAccount';
+import { Me, MeProvider } from './me';
 
-export interface Me { user: User; name: string; version: string }
+export type { Me };
 
 // Enabled plugins with a page add sidebar entries after Sites.
-const buildNav = (plugins: PluginView[]) => [
+// Customers see their hosting and their account; admins also run the platform.
+const buildNav = (plugins: PluginView[], admin: boolean) => [
   ['Overview'], ['/', 'dash', 'Dashboard'],
   ['Hosting'], ['/sites', 'site', 'Sites'],
   ...plugins.filter((p) => p.enabled && p.nav_label && pluginPages[p.id]).map((p) => ['/p/' + p.id, p.icon || 'plug', p.nav_label]),
   ['/backups', 'backup', 'Backups'], ['/activity', 'pulse', 'Activity'],
-  ['Platform'], ['/system', 'server', 'System'], ['/plugins', 'plug', 'Plugins'], ['/settings', 'set', 'Settings'],
+  ...(admin
+    ? [['Platform'], ['/accounts', 'users', 'Accounts'], ['/system', 'server', 'System'], ['/plugins', 'plug', 'Plugins'], ['/settings', 'set', 'Settings']]
+    : [['Account'], ['/account', 'set', 'My account']]),
 ];
 
 const titles: Record<string, string> = {
   '': 'Dashboard', sites: 'Sites', backups: 'Backups', activity: 'Activity', system: 'System', settings: 'Settings', plugins: 'Plugins',
+  accounts: 'Accounts', account: 'My account',
 };
 
 function PluginRoute() {
@@ -109,19 +116,22 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     return () => window.removeEventListener('keydown', h);
   }, [menu]);
   useResponsiveTables();
+  const admin = me.user.role === 'admin';
   const [plugins, setPlugins] = useState<PluginView[]>([]);
   useEffect(() => {
+    if (!admin) return;
     const load = () => get<PluginView[]>('/plugins').then(setPlugins).catch(() => undefined);
     load();
     window.addEventListener('berth-plugins', load);
     return () => window.removeEventListener('berth-plugins', load);
   }, []);
-  const nav = buildNav(plugins);
+  const nav = buildNav(plugins, admin);
   const title = section === 'p' ? plugins.find((p) => p.id === loc.pathname.split('/')[2])?.nav_label ?? '' : titles[section] ?? '';
   const siteID = section === 'sites' ? loc.pathname.split('/')[2] : '';
   const inSite = !!siteID && siteID !== 'new';
   const [newer, setNewer] = useState('');
   useEffect(() => {
+    if (!admin) return;
     const check = () => get<{ update: { current: string; latest: string } }>('/system')
       .then((r) => setNewer(r.update.latest && r.update.latest !== r.update.current && r.update.current !== 'dev' ? r.update.latest : ''))
       .catch(() => undefined);
@@ -143,7 +153,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
               </NavLink>)}
         </nav>}
         <div className="foot">
-          <div className="node"><span className="dot" /><b style={{ fontWeight: 650 }}>{me.name}</b></div>
+          <div className="node"><span className="dot" /><b style={{ fontWeight: 650 }}>{admin ? me.name : me.account.name}</b></div>
           <div className="node" style={{ marginTop: 10 }}>
             <span className="muted">{me.user.username}</span>
             <button className="btn s ghost" style={{ marginLeft: 'auto' }} onClick={onLogout} title="Sign out"><Icon name="out" size={13} /></button>
@@ -167,11 +177,16 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <Route path="/sites/:id" element={<SitePage />} />
             <Route path="/backups" element={<Backups />} />
             <Route path="/activity" element={<Activity />} />
-            <Route path="/system" element={<System />} />
-            <Route path="/settings" element={<Settings me={me} />} />
-            <Route path="/plugins" element={<Plugins />} />
-            <Route path="/p/:id" element={<PluginRoute />} />
-            <Route path="/p/:id/:sub" element={<PluginRoute />} />
+            <Route path="/account" element={<MyAccount me={me} />} />
+            {admin && <>
+              <Route path="/system" element={<System />} />
+              <Route path="/settings" element={<Settings me={me} />} />
+              <Route path="/plugins" element={<Plugins />} />
+              <Route path="/accounts" element={<Accounts />} />
+              <Route path="/accounts/:id" element={<AccountPage />} />
+              <Route path="/p/:id" element={<PluginRoute />} />
+              <Route path="/p/:id/:sub" element={<PluginRoute />} />
+            </>}
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
           </PageBoundary>
@@ -192,7 +207,7 @@ export default function App() {
   return (
     <ToastProvider>
       <BrowserRouter>
-        {me ? <Shell me={me} onLogout={() => post('/logout').finally(() => setMe(null))} /> : <Login onDone={load} />}
+        {me ? <MeProvider value={me}><Shell me={me} onLogout={() => post('/logout').finally(() => setMe(null))} /></MeProvider> : <Login onDone={load} />}
       </BrowserRouter>
     </ToastProvider>
   );

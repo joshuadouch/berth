@@ -118,3 +118,22 @@ func TestSetupLoginAndSites(t *testing.T) {
 		t.Fatalf("me: %d %v", code, out)
 	}
 }
+
+// list GETs a JSON array.
+func (c *client) list(path string, v any) {
+	req, _ := http.NewRequest("GET", c.ts.URL+path, nil)
+	if c.cookie != nil {
+		req.AddCookie(c.cookie)
+	}
+	resp, err := c.ts.Client().Do(req)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		c.t.Fatalf("GET %s: %d", path, resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
+		c.t.Fatal(err)
+	}
+}

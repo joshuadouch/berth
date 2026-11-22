@@ -8,7 +8,7 @@ export interface Site {
   id: string; name: string; type: SiteType; domain: string; aliases: string[] | null; php_version: string; doc_root: string;
   redirect_aliases: boolean; front_controller: boolean; https: boolean; enabled: boolean; upload_mb: number; memory_mb: number;
   max_children: number; backups: boolean; db?: Database; wp?: WordPress; sftp: SFTP; halyard: HalyardLink; status: string;
-  status_error: string; notes: string; created_at: string; nginx_custom?: string;
+  status_error: string; notes: string; created_at: string; nginx_custom?: string; account_id: string;
   php: PHPSettings; auto_update: AutoUpdate; no_monitor: boolean;
   import?: { files: string; files_name: string; db: string; db_name: string };
 }
@@ -31,7 +31,9 @@ export interface Job { id: number; site: string; kind: string; title: string; st
 export interface Event { id: number; time: string; level: string; kind: string; site: string; message: string }
 export interface Service { name: string; label: string; active: string }
 export interface Disk { path: string; total: number; free: number }
-export interface User { id: string; username: string; email: string; totp_enabled: boolean }
+export interface User { id: string; username: string; email: string; totp_enabled: boolean; role: 'admin' | 'customer'; account_id: string }
+export interface Account { id: string; name: string; email: string; notes: string; suspended: boolean; created_at: string }
+export interface AccountView extends Account { users: User[]; sites: string[] }
 
 export interface HalyardSettings { url: string; token?: string; pool_id: string; vip_id: string; exposure: string; insecure: boolean; auto_cert: boolean; no_dns: boolean }
 export interface S3Settings { enabled: boolean; endpoint: string; region: string; bucket: string; prefix: string; access_key: string; secret_key?: string; path_style: boolean; keep: number; local_keep: number }

@@ -84,7 +84,15 @@ func open(cfgPath string) (*config.Config, *store.Store, error) {
 		return nil, nil, err
 	}
 	st, err := store.Open(cfg.Path("berth.db"))
-	return cfg, st, err
+	if err != nil {
+		return cfg, nil, err
+	}
+	// Panels from before accounts existed get one account that owns everything.
+	if err := st.MigrateAccounts(context.Background()); err != nil {
+		st.Close()
+		return cfg, nil, fmt.Errorf("migrate accounts: %w", err)
+	}
+	return cfg, st, nil
 }
 
 func serve(cfgPath string) error {

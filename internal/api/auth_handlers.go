@@ -63,7 +63,12 @@ func (s *Server) postSetup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	u := model.User{ID: store.NewID(), Username: req.Username, Email: req.Email, PasswordHash: h}
+	acct := model.Account{ID: store.NewID(), Name: req.Username, Email: req.Email, CreatedAt: time.Now().UTC()}
+	if err := s.Store.SaveAccount(r.Context(), acct); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	u := model.User{ID: store.NewID(), Username: req.Username, Email: req.Email, PasswordHash: h, Role: model.RoleAdmin, AccountID: acct.ID}
 	if err := s.Store.SaveUser(r.Context(), u); err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -99,6 +104,12 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "wrong username or password")
 		return
 	}
+	if !u.IsAdmin() {
+		if a, err := s.Store.Account(r.Context(), u.AccountID); err != nil || a.Suspended {
+			writeErr(w, 403, "this account is suspended; contact your host")
+			return
+		}
+	}
 	if u.TOTPEnabled {
 		if req.TOTP == "" {
 			writeJSON(w, 401, map[string]any{"error": "enter your authenticator code", "totp_required": true})
@@ -126,7 +137,9 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"user": currentUser(r), "name": s.Cfg.Name, "version": s.Version})
+	u := currentUser(r)
+	a, _ := s.Store.Account(r.Context(), u.AccountID)
+	writeJSON(w, 200, map[string]any{"user": u, "account": a, "name": s.Cfg.Name, "version": s.Version})
 }
 
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {

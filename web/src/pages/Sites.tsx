@@ -1,17 +1,22 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ago, bytes, get, SiteRow } from '../api';
+import { AccountView, ago, bytes, get, SiteRow } from '../api';
+import { useMe } from '../me';
 import { Badge, ErrorBox, Icon, Loading, SiteAvatar, StatusBadge, TypeBadge, useLoad } from '../ui';
 
 export default function Sites() {
   const { data, error } = useLoad(() => get<SiteRow[]>('/sites'), [], 10000);
   const [q, setQ] = useState('');
   const nav = useNavigate();
+  const { isAdmin } = useMe();
+  const accts = useLoad(() => (isAdmin ? get<AccountView[]>('/accounts') : Promise.resolve([] as AccountView[])));
+  const names: Record<string, string> = Object.fromEntries((accts.data ?? []).map((a) => [a.id, a.name]));
+  const multi = (accts.data?.length ?? 0) > 1;
   const rows = (data ?? []).filter((s) => !q || [s.domain, s.name, ...(s.aliases ?? [])].some((x) => x.includes(q.toLowerCase())));
   return (
     <>
       <div className="head">
-        <div><h1>Sites</h1><div className="sub">Every site on this server. Each has its own system user, PHP pool and database.</div></div>
+        <div><h1>Sites</h1><div className="sub">{isAdmin ? 'Every site on this server.' : 'The sites in your account.'} Each has its own system user, PHP pool and database.</div></div>
         <Link to="/sites/new" className="btn p"><Icon name="plus" />New site</Link>
       </div>
       <ErrorBox error={error} />
@@ -24,11 +29,12 @@ export default function Sites() {
           </div>
         ) : (
           <table>
-            <thead><tr><th>Site</th><th>Type</th><th>PHP</th><th>Disk</th><th>Last backup</th><th>Status</th></tr></thead>
+            <thead><tr><th>Site</th>{multi && <th>Account</th>}<th>Type</th><th>PHP</th><th>Disk</th><th>Last backup</th><th>Status</th></tr></thead>
             <tbody>{rows.map((s) => (
               <tr key={s.id} className="click" onClick={() => nav('/sites/' + s.id)}>
                 <td><div className="row" style={{ gap: 12, alignItems: 'center' }}><SiteAvatar name={s.domain} />
                   <div><b>{s.domain}</b>{(s.aliases?.length ?? 0) > 0 && <span className="dim"> +{s.aliases!.length}</span>}<div className="dim mono" style={{ fontSize: 11 }}>{s.name}</div></div></div></td>
+                {multi && <td className="muted">{names[s.account_id] ?? '—'}</td>}
                 <td><TypeBadge type={s.type} /></td>
                 <td className="mono">{s.php_version}</td>
                 <td className="muted">{bytes(s.usage.files + s.usage.db)}</td>

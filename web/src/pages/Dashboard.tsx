@@ -8,7 +8,7 @@ interface Dash {
   backups: number; backup_bytes: number; jobs: Job[]; events: Event[];
   settings: { backup_enabled: boolean; backup_time: string; trusted_proxies: string[] | null; halyard: boolean };
   traffic: TrafficHour[]; uptime: Record<string, { checks: number; up: number; avg_ms: number }>;
-  uptime_state: Record<string, UptimeState>; vulns: Record<string, number>; resources: Metric[];
+  uptime_state: Record<string, UptimeState>; vulns: Record<string, number>; resources: Metric[]; customer?: boolean;
 }
 
 export function ServiceList({ services }: { services: Service[] }) {
@@ -48,21 +48,22 @@ export default function Dashboard({ me }: { me: string }) {
   const sitesDown = Object.entries(data.uptime_state).filter(([, st]) => st.down).map(([n]) => n);
   const vulnSites = Object.keys(data.vulns);
   const res = data.resources;
+  const cust = !!data.customer;
   return (
     <>
       <div className="hero">
         <div className="head">
           <div><h1>{greeting()}, {me}</h1>
-            <div className="sub">{data.sites} site{data.sites === 1 ? '' : 's'} on this server · {sitesDown.length ? `${sitesDown.length} down right now` : 'all sites answering'}{vulnSites.length ? ` · ${vulnSites.length} with known vulnerabilities` : ''}</div></div>
+            <div className="sub">{data.sites} site{data.sites === 1 ? '' : 's'} {cust ? 'in your account' : 'on this server'} · {sitesDown.length ? `${sitesDown.length} down right now` : 'all sites answering'}{vulnSites.length ? ` · ${vulnSites.length} with known vulnerabilities` : ''}</div></div>
           <Link to="/sites/new" className="btn white"><Icon name="plus" />New site</Link>
         </div>
       </div>
       {down.length > 0 && <div className="err">Not running: {down.map((s) => s.label).join(', ')}. Sites that use them are down.</div>}
-      {!data.settings.trusted_proxies?.length && <div className="warnbox">No trusted proxies are set, so sites see the load balancer's address instead of the visitor's and cannot tell HTTPS from HTTP. Add your Halyard nodes on the <Link to="/settings">Settings</Link> page.</div>}
+      {!cust && !data.settings.trusted_proxies?.length && <div className="warnbox">No trusted proxies are set, so sites see the load balancer's address instead of the visitor's and cannot tell HTTPS from HTTP. Add your Halyard nodes on the <Link to="/settings">Settings</Link> page.</div>}
       <div className="row" style={{ marginBottom: 16 }}>
         <Link to="/sites" className="card stat mon-tile"><div className="k"><span className="ic violet"><Icon name="site" size={15} /></span>Sites</div><div className="v">{data.sites}</div><div className="d muted">{data.counts.wordpress ?? 0} WordPress · {(data.counts.php_db ?? 0) + (data.counts.php ?? 0)} PHP</div></Link>
-        <Link to="/backups" className="card stat mon-tile"><div className="k"><span className="ic teal"><Icon name="backup" size={15} /></span>Backups</div><div className="v">{data.backups}</div><div className="d muted">{bytes(data.backup_bytes)} · {data.settings.backup_enabled ? `nightly at ${data.settings.backup_time}` : 'nightly off'}</div></Link>
-        <Link to="/system" className="card stat mon-tile"><div className="k"><span className="ic blue"><Icon name="server" size={15} /></span>Services</div><div className="v">{data.services.length - down.length}/{data.services.length}</div><div className="d muted">running</div></Link>
+        <Link to="/backups" className="card stat mon-tile"><div className="k"><span className="ic teal"><Icon name="backup" size={15} /></span>Backups</div><div className="v">{data.backups}</div><div className="d muted">{bytes(data.backup_bytes)}{cust ? '' : data.settings.backup_enabled ? ` · nightly at ${data.settings.backup_time}` : ' · nightly off'}</div></Link>
+        {!cust && <Link to="/system" className="card stat mon-tile"><div className="k"><span className="ic blue"><Icon name="server" size={15} /></span>Services</div><div className="v">{data.services.length - down.length}/{data.services.length}</div><div className="d muted">running</div></Link>}
         <div className="card stat mon-tile"><div className="k"><span className="ic orange"><Icon name="pulse" size={15} /></span>Requests</div><div className="v">{fmtNum(reqs)}</div><div className="d muted">last 24 hours, all sites</div></div>
         <div className="card stat mon-tile"><div className="k"><span className="ic pink"><Icon name="check" size={15} /></span>Uptime</div><div className="v">{checks.c ? ((checks.up / checks.c) * 100).toFixed(2) + '%' : '–'}</div><div className="d muted">{sitesDown.length ? `${sitesDown.length} down now` : 'last 24 hours'}</div></div>
       </div>
@@ -96,7 +97,7 @@ export default function Dashboard({ me }: { me: string }) {
               ))}</tbody></table>}
           </div>
         </div>
-        <div className="stack" style={{ flex: 2, minWidth: 0 }}>
+        {!cust && <div className="stack" style={{ flex: 2, minWidth: 0 }}>
           <div className="card"><div className="ch"><h3>Server load</h3><span className="dim" style={{ fontSize: 12 }}>24 hours</span></div><div className="cb">
             <div className="mon-sub">CPU, % of all cores</div>
             <LineChart t={res.map((m) => m.time)} series={[{ name: 'CPU', values: res.map((m) => m.cpu) }]} fmt={fmtPct} step={300} height={120} area max={100} />
@@ -105,7 +106,7 @@ export default function Dashboard({ me }: { me: string }) {
           </div></div>
           <div className="card"><div className="ch"><h3>Services</h3></div><ServiceList services={data.services} /></div>
           <div className="card"><div className="ch"><h3>Disk</h3></div><div className="cb"><DiskBars disks={data.disks} /></div></div>
-        </div>
+        </div>}
       </div>
     </>
   );
