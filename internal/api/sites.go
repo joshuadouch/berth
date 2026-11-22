@@ -348,3 +348,18 @@ func (s *Server) setSiteNginx(w http.ResponseWriter, r *http.Request) {
 	conf, _ := s.Engine.SiteNginx(r.Context(), next)
 	writeJSON(w, 200, map[string]any{"config": conf, "custom": next.NginxCustom})
 }
+
+// wpLogin returns a single-use link that opens WP admin already logged in.
+func (s *Server) wpLogin(w http.ResponseWriter, r *http.Request) {
+	site, ok := s.wpSite(w, r)
+	if !ok {
+		return
+	}
+	link, login, err := s.Engine.WPLoginURL(r.Context(), site)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	s.Store.AddEvent(r.Context(), "info", "site", site.Name, currentUser(r).Username+" opened WP admin as "+login)
+	writeJSON(w, 200, map[string]any{"url": link, "user": login})
+}

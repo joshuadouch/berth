@@ -89,6 +89,7 @@ func (s *Server) Handler() http.Handler {
 	a("GET /api/sites/{id}/wp", s.wpInfo)
 	a("POST /api/sites/{id}/wp/update", s.wpUpdate)
 	a("POST /api/sites/{id}/wp/admin-password", s.wpAdminPassword)
+	a("POST /api/sites/{id}/wp/login", s.wpLogin)
 	a("POST /api/sites/{id}/wp/search-replace", s.wpSearchReplace)
 	a("PUT /api/sites/{id}/auto-update", s.setAutoUpdate)
 	a("GET /api/sites/{id}/vulns", s.siteVulns)

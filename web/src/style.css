@@ -68,7 +68,7 @@ a{color:var(--accent-ink)}
 .search .results small{color:var(--dim);display:block}
 .applybar{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
 .content{flex:1;padding:28px 32px 40px;overflow:auto}
-.content>*{max-width:1320px}
+.content>*:not(.modal-bg){max-width:1320px}
 h1{font-size:24px;font-weight:800;letter-spacing:-.4px}
 .sub{color:var(--muted);margin-top:4px}
 .head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:22px;gap:16px}
