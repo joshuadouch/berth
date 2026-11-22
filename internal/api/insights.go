@@ -277,6 +277,13 @@ func (s *Server) sitePerformance(w http.ResponseWriter, r *http.Request) {
 		avg = []store.TopEntry{}
 	}
 	hours, _ := s.Store.Traffic(ctx, site.Name, since.Unix()/3600*3600)
+	// The page reads these as lists; never send null.
+	if slow == nil {
+		slow = []store.SlowRequest{}
+	}
+	if hours == nil {
+		hours = []store.TrafficHour{}
+	}
 	writeJSON(w, 200, map[string]any{"slow_requests": slow, "slowest_pages": avg, "hours": hours, "logs": s.Engine.SitePerformance(ctx, site)})
 }
 

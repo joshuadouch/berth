@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { Component, createContext, ErrorInfo, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ApiError, get, Job } from './api';
 
@@ -271,3 +271,23 @@ export function JobView({ id, onDone }: { id: number; onDone?: (j: Job) => void 
   );
 }
 
+
+// PageBoundary shows a message instead of a blank page when a page crashes.
+// It resets when the address changes.
+export class PageBoundary extends Component<{ children: ReactNode; resetKey: string }, { error: Error | null; key: string }> {
+  state = { error: null as Error | null, key: this.props.resetKey };
+  static getDerivedStateFromProps(p: { resetKey: string }, s: { error: Error | null; key: string }) {
+    return p.resetKey !== s.key ? { error: null, key: p.resetKey } : null;
+  }
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error(error, info.componentStack); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="card"><div className="cb">
+        <div className="err"><b>This page hit an error.</b> {this.state.error.message}</div>
+        <button className="btn s" style={{ marginTop: 12 }} onClick={() => this.setState({ error: null })}>Try again</button>
+      </div></div>
+    );
+  }
+}

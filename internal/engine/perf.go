@@ -237,12 +237,16 @@ func (e *Engine) SitePerformance(ctx context.Context, s model.Site) Performance 
 		if len(all) > 50 {
 			all = all[:50]
 		}
-		p.PHPSlow = all
+		if all != nil {
+			p.PHPSlow = all
+		}
 	}
 	if s.DB != nil {
 		if text, err := readTail(mysqlSlowLog, 8<<20); err == nil {
 			p.DBSlowOn = true
-			p.DBSlow = ParseMySQLSlowLog(text, s.DB.User)
+			if q := ParseMySQLSlowLog(text, s.DB.User); q != nil {
+				p.DBSlow = q
+			}
 		} else {
 			p.DBSlowOn = e.Cfg.DryRun
 		}
