@@ -332,7 +332,13 @@ VPS elsewhere (`ns2`).
    bash -c "$(curl -fsSL https://raw.githubusercontent.com/joshuadouch/berth/main/ct/pdns.sh)"
    ```
 
-   or on any Debian 12/13 machine:
+   It asks what the node should run: **both** (a primary and a secondary as
+   two containers on this node, already linked to each other, so step 2 is
+   done too), **primary**, or **secondary**. With both on one node, forward
+   port 53 to each container from its own public address; with a single
+   public address, forward it to the primary and point both names at it.
+
+   Or on any Debian 12/13 machine:
 
    ```bash
    curl -fsSLO https://raw.githubusercontent.com/joshuadouch/berth/main/install/pdns-install.sh
