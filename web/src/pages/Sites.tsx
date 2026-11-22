@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ago, bytes, get, SiteRow } from '../api';
-import { ErrorBox, Icon, Loading, StatusBadge, TypeBadge, useLoad } from '../ui';
+import { Badge, ErrorBox, Icon, Loading, StatusBadge, TypeBadge, useLoad } from '../ui';
 
 export default function Sites() {
   const { data, error } = useLoad(() => get<SiteRow[]>('/sites'), [], 10000);
@@ -32,7 +32,10 @@ export default function Sites() {
                 <td className="mono">{s.php_version}</td>
                 <td className="muted">{bytes(s.usage.files + s.usage.db)}</td>
                 <td className="muted">{s.last_backup ? ago(s.last_backup.time) : s.backups ? 'none yet' : 'off'}</td>
-                <td><StatusBadge status={s.status} enabled={s.enabled} /></td>
+                <td><div className="row" style={{ gap: 6 }}>
+                  {s.uptime?.down ? <Badge kind="b">● Down</Badge> : <StatusBadge status={s.status} enabled={s.enabled} />}
+                  {s.vulns > 0 && <Badge kind="b" ><Icon name="lock" size={11} />{s.vulns}</Badge>}
+                </div></td>
               </tr>
             ))}</tbody>
           </table>

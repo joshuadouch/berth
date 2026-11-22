@@ -48,7 +48,7 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := db.Exec(schema + statsSchema); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	// Jobs that were running when Berth stopped will never finish.

@@ -3,12 +3,13 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ago, Backup, bytes, del, exposureLabel, fmtDate, get, HalyardInfo, Job, post, put, Site, SiteDetail, siteURL, typeLabel, vipLabel, WPInfo } from '../api';
 import FilesTab from './Files';
 import DatabaseTab from './Database';
+import { AnalyticsTab, AutoUpdateCard, SearchReplaceCard, VulnCard } from './Insights';
 import { BackupBrowser, RestoreModal, Where } from './BackupTools';
 import { Badge, Chips, Copyable, ErrorBox, Field, Icon, JobBadge, JobView, Loading, Modal, StatusBadge, Toggle, TypeBadge, useLoad, useToast } from '../ui';
 
-const tabs = ['overview', 'files', 'database', 'wordpress', 'backups', 'logs', 'settings', 'activity'] as const;
+const tabs = ['overview', 'analytics', 'files', 'database', 'wordpress', 'backups', 'logs', 'settings', 'activity'] as const;
 type Tab = typeof tabs[number];
-const tabLabel: Record<Tab, string> = { overview: 'Overview', files: 'Files', database: 'Database', settings: 'Settings', wordpress: 'WordPress', backups: 'Backups', logs: 'Logs', activity: 'Activity' };
+const tabLabel: Record<Tab, string> = { overview: 'Overview', analytics: 'Analytics', files: 'Files', database: 'Database', settings: 'Settings', wordpress: 'WordPress', backups: 'Backups', logs: 'Logs', activity: 'Activity' };
 
 export default function SitePage() {
   const { id = '' } = useParams();
@@ -20,28 +21,33 @@ export default function SitePage() {
   if (!d.data) return d.error ? <ErrorBox error={d.error} /> : <Loading />;
   const s = d.data.site;
   const ready = s.status === 'active' || s.status === 'error';
-  const visible = tabs.filter((t) => (t !== 'wordpress' || s.type === 'wordpress') && (t !== 'database' || (!!s.db && ready)) && (t !== 'files' || ready));
+  const visible = tabs.filter((t) => (t !== 'wordpress' || s.type === 'wordpress') && (t !== 'database' || (!!s.db && ready)) && (t !== 'files' || ready) && (t !== 'analytics' || ready));
+  const purge = () => post<{ hosts: number }>('/sites/' + s.id + '/cloudflare/purge').then((r) => toast(`Cloudflare cache cleared for ${r.hosts} hostname${r.hosts === 1 ? '' : 's'}`)).catch((e) => toast(e.message, true));
   const startJob = (p: Promise<{ job_id: number }>, msg?: string) => p.then((r) => { setJob(r.job_id); if (msg) toast(msg); d.reload(); }).catch((e) => toast(e.message, true));
   return (
     <>
       <div className="head">
         <div style={{ minWidth: 0 }}>
-          <div className="sitehead"><h1>{s.domain}</h1><TypeBadge type={s.type} /><StatusBadge status={s.status} enabled={s.enabled} /></div>
+          <div className="sitehead"><h1>{s.domain}</h1><TypeBadge type={s.type} /><StatusBadge status={s.status} enabled={s.enabled} />
+            {d.data.uptime?.down && <Badge kind="b">Down</Badge>}
+            {d.data.vulns > 0 && <span className="click" onClick={() => setSp({ tab: 'wordpress' })}><Badge kind="b"><Icon name="lock" size={11} />{d.data.vulns} vulnerabilit{d.data.vulns === 1 ? 'y' : 'ies'}</Badge></span>}</div>
           <div className="sub">{s.name} · PHP {s.php_version}{s.aliases?.length ? ' · also ' + s.aliases.join(', ') : ''}</div>
         </div>
         <div className="row" style={{ gap: 8 }}>
           {s.status === 'error' && <button className="btn p" onClick={() => startJob(post('/sites/' + s.id + '/retry'), 'Retrying')}><Icon name="sync" />Retry</button>}
+          {d.data.cloudflare && s.status === 'active' && <button className="btn" onClick={purge} title="Clear Cloudflare's cache for this site's domains"><Icon name="cloud" />Clear cache</button>}
           <a className="btn" href={siteURL(s)} target="_blank" rel="noreferrer"><Icon name="ext" />Visit</a>
           {s.type === 'wordpress' && s.status === 'active' && <a className="btn" href={siteURL(s) + '/wp-admin/'} target="_blank" rel="noreferrer"><Icon name="wp" />WP admin</a>}
         </div>
       </div>
       {s.status === 'error' && <div className="err">Creating this site failed: {s.status_error}. Fix the cause (see the Activity tab) and press Retry.</div>}
       <div className="tabs">{visible.map((t) => <span key={t} className={t === tab ? 'on' : ''} onClick={() => setSp(t === 'overview' ? {} : { tab: t })}>{tabLabel[t]}</span>)}</div>
+      {tab === 'analytics' && <AnalyticsTab s={s} />}
       {tab === 'overview' && <Overview d={d.data} reload={d.reload} startJob={startJob} />}
       {tab === 'settings' && <SettingsTab s={s} sftp={d.data.sftp_available} onSaved={(j) => { d.reload(); if (j) setJob(j); }} />}
       {tab === 'files' && <FilesTab s={s} />}
       {tab === 'database' && s.db && <DatabaseTab s={s} />}
-      {tab === 'wordpress' && <WordPressTab s={s} startJob={startJob} />}
+      {tab === 'wordpress' && <WordPressTab s={s} startJob={startJob} reload={d.reload} />}
       {tab === 'backups' && <BackupsTab s={s} backups={d.data.backups} reload={d.reload} startJob={startJob} />}
       {tab === 'logs' && <LogsTab s={s} />}
       {tab === 'activity' && <ActivityTab d={d.data} open={setJob} />}
@@ -198,6 +204,14 @@ function SettingsTab({ s, sftp, onSaved }: { s: Site; sftp: boolean; onSaved: (j
           <Field label="Memory limit (MB)"><input className="input" type="number" min={32} value={f.memory_mb} onChange={(e) => set({ memory_mb: +e.target.value })} /></Field>
           <Field label="Upload limit (MB)"><input className="input" type="number" min={1} value={f.upload_mb} onChange={(e) => set({ upload_mb: +e.target.value })} /></Field>
         </div>
+        <div className="grid3">
+          <Field label="Max execution time (s)"><input className="input" type="number" min={1} max={3600} value={f.php?.max_execution || 300} onChange={(e) => set({ php: { ...f.php, max_execution: +e.target.value } })} /></Field>
+          <Field label="Max input vars"><input className="input" type="number" min={1} value={f.php?.max_input_vars || 5000} onChange={(e) => set({ php: { ...f.php, max_input_vars: +e.target.value } })} /></Field>
+          <Field label="Max input time (s)" help="-1 uses the execution time."><input className="input" type="number" min={-1} max={3600} value={f.php?.max_input_time || 300} onChange={(e) => set({ php: { ...f.php, max_input_time: +e.target.value } })} /></Field>
+        </div>
+        <Field label="More php.ini settings" help="One key = value per line, such as date.timezone = Europe/London or opcache.revalidate_freq = 0. Applied to this site's PHP only; PHP checks them before they go live.">
+          <textarea className="input mono" style={{ minHeight: 90 }} spellCheck={false} value={f.php?.custom ?? ''} placeholder={'date.timezone = Europe/London\nmax_file_uploads = 50'} onChange={(e) => set({ php: { ...f.php, custom: e.target.value } })} />
+        </Field>
         {s.type !== 'wordpress' && <>
           <Field label="Document root inside public" help="Leave empty to serve public itself."><input className="input mono" value={f.doc_root} onChange={(e) => set({ doc_root: e.target.value })} /></Field>
           <Toggle on={f.front_controller} onChange={(v) => set({ front_controller: v })} label="Send unknown paths to index.php" />
@@ -206,6 +220,7 @@ function SettingsTab({ s, sftp, onSaved }: { s: Site; sftp: boolean; onSaved: (j
       <div className="card" style={{ marginTop: 16 }}><div className="ch"><h3>Access and backups</h3></div><div className="cb">
         <Toggle on={f.enabled} onChange={(v) => set({ enabled: v })} label="Site is online" help="When off, visitors get a 503 page. Files and database are kept." />
         <Toggle on={f.backups} onChange={(v) => set({ backups: v })} label="Include in nightly backups" />
+        <Toggle on={!f.no_monitor} onChange={(v) => set({ no_monitor: !v })} label="Uptime checks" help="Request the site every minute and log when it goes down. See Analytics → Uptime." />
         {sftp && <>
           <Toggle on={f.sftp.enabled} onChange={(v) => set({ sftp: { ...f.sftp, enabled: v } })} label="SFTP access" help="Logins only see this site's folder. Set a password on the Overview tab, or add SSH keys here." />
           {f.sftp.enabled && <Field label="SSH public keys, one per line"><textarea className="input" value={keys} onChange={(e) => setKeys(e.target.value)} placeholder="ssh-ed25519 AAAA… you@laptop" /></Field>}
@@ -276,8 +291,9 @@ function DeleteModal({ s, onClose }: { s: Site; onClose: () => void }) {
   );
 }
 
-function WordPressTab({ s, startJob }: { s: Site; startJob: (p: Promise<{ job_id: number }>, m?: string) => void }) {
+function WordPressTab({ s, startJob, reload }: { s: Site; startJob: (p: Promise<{ job_id: number }>, m?: string) => void; reload: () => void }) {
   const info = useLoad(() => get<WPInfo>('/sites/' + s.id + '/wp'), [s.id]);
+  const [rollback, setRollback] = useState(true);
   const [user, setUser] = useState('');
   const [pw, setPw] = useState<{ user: string; password: string; login_url: string } | null>(null);
   const [err, setErr] = useState<unknown>(null);
@@ -297,11 +313,14 @@ function WordPressTab({ s, startJob }: { s: Site; startJob: (p: Promise<{ job_id
               <div>Themes</div><div>{w.themes?.length ?? 0}{w.theme_updates > 0 && <> · <Badge kind="w">{w.theme_updates} to update</Badge></>}</div>
             </div>
             <div className="cb" style={{ borderTop: '1px solid var(--line)' }}>
-              <button className="btn p" onClick={() => startJob(post('/sites/' + s.id + '/wp/update'), 'Updating WordPress')}><Icon name="sync" size={13} />{updates ? `Update everything (${updates})` : 'Run updates'}</button>
+              <Toggle on={rollback} onChange={setRollback} label="Roll back if the site breaks" help="Checks the home page and login page after updating, and restores the backup if they fail." />
+              <button className="btn p" onClick={() => startJob(post('/sites/' + s.id + '/wp/update?rollback=' + (rollback ? 1 : 0)), 'Updating WordPress')}><Icon name="sync" size={13} />{updates ? `Update everything (${updates})` : 'Run updates'}</button>
               <small className="help">Backs up the site first, then updates core, plugins, themes and translations.</small>
             </div>
           </>}
         </div>
+        <AutoUpdateCard s={s} onSaved={reload} />
+        <VulnCard s={s} />
         <div className="card"><div className="ch"><h3>Reset a login</h3></div><div className="cb">
           <ErrorBox error={err} />
           {pw ? <>
@@ -314,6 +333,8 @@ function WordPressTab({ s, startJob }: { s: Site; startJob: (p: Promise<{ job_id
           </>}
         </div></div>
       </div>
+      <div className="stack">
+      <SearchReplaceCard s={s} startJob={startJob} />
       {w && !w.error && <div className="card"><div className="ch"><h3>Plugins and themes</h3></div>
         <table><thead><tr><th>Name</th><th>Version</th><th>Status</th></tr></thead><tbody>
           {[...(w.plugins ?? []).map((p) => ({ ...p, kind: 'plugin' })), ...(w.themes ?? []).map((p) => ({ ...p, kind: 'theme' }))].map((p) => (
@@ -324,6 +345,7 @@ function WordPressTab({ s, startJob }: { s: Site; startJob: (p: Promise<{ job_id
           {(w.plugins?.length ?? 0) + (w.themes?.length ?? 0) === 0 && <tr><td colSpan={3} className="muted">None installed.</td></tr>}
         </tbody></table>
       </div>}
+      </div>
     </div>
   );
 }

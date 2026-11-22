@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -73,15 +74,38 @@ func (e *Engine) Loop(ctx context.Context) {
 	go e.fixWebModes(ctx)
 	tick := time.NewTicker(time.Minute)
 	defer tick.Stop()
+	fast := time.NewTicker(15 * time.Second)
+	defer fast.Stop()
 	lastCron := time.Time{}
 	lastUsage := time.Now()
+	lastTraffic := time.Time{}
+	lastHourly := time.Time{}
+	var uptimeBusy atomicFlag
 	// PHP updates: check soon after start, then once a day.
 	lastPHP := time.Now().Add(-23 * time.Hour)
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case now := <-fast.C:
+			if !e.Cfg.DryRun {
+				e.sampleResources(ctx, now)
+			}
 		case now := <-tick.C:
+			if uptimeBusy.try() {
+				go func() { defer uptimeBusy.done(); e.runUptime(ctx) }()
+			}
+			e.runAutoUpdates(ctx, now)
+			if now.Sub(lastTraffic) >= 5*time.Minute {
+				lastTraffic = now
+				go e.ingestAllTraffic(ctx)
+			}
+			if now.Sub(lastHourly) >= time.Hour {
+				lastHourly = now
+				go e.ensureSlowQueryLog(ctx)
+				go e.Store.PruneStats(ctx, now)
+				go e.maybeVulnScan(ctx, now)
+			}
 			if now.Sub(lastCron) >= 5*time.Minute {
 				lastCron = now
 				go e.RunWPCron(ctx)
@@ -200,4 +224,21 @@ func (e *Engine) Disks(ctx context.Context) []Disk {
 		out = append(out, Disk{Path: p, Total: fs.Blocks * uint64(fs.Bsize), Free: fs.Bavail * uint64(fs.Bsize)})
 	}
 	return out
+}
+
+// atomicFlag lets one run of a task go at a time.
+type atomicFlag struct{ busy atomic.Bool }
+
+func (f *atomicFlag) try() bool { return f.busy.CompareAndSwap(false, true) }
+func (f *atomicFlag) done()     { f.busy.Store(false) }
+
+// maybeVulnScan checks every WordPress site for known vulnerabilities once a day.
+func (e *Engine) maybeVulnScan(ctx context.Context, now time.Time) {
+	var last time.Time
+	_ = e.Store.GetKV(ctx, "vulns_last", &last)
+	if now.Sub(last) < 24*time.Hour || e.Cfg.DryRun {
+		return
+	}
+	_ = e.Store.SetKV(ctx, "vulns_last", now)
+	e.scanAllVulns(ctx)
 }

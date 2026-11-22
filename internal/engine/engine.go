@@ -36,6 +36,9 @@ type Engine struct {
 	// S3Transport and S3Insecure point off-site backups at a test server.
 	S3Transport http.RoundTripper
 	S3Insecure  bool
+	// HTTP and LocalBase point outgoing checks at test servers.
+	HTTP      *http.Client
+	LocalBase string
 
 	applyMu sync.Mutex
 	siteMu  sync.Map // site name -> *sync.Mutex
@@ -46,6 +49,9 @@ type Engine struct {
 	healthFixed atomic.Bool
 	index       indexCache
 	phpUp       phpUpdateState
+	vulns       vulnState
+	traffic     trafficState
+	res         resourceState
 }
 
 // New creates an engine.

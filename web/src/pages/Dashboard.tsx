@@ -1,11 +1,14 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { ago, bytes, Disk, Event, get, Job, Service, Site } from '../api';
+import { ago, bytes, Disk, Event, get, Job, Metric, Service, Site, TrafficHour, UptimeState } from '../api';
+import { fmtBytes, fmtNum, fmtPct, LineChart, SERIES } from '../charts';
 import { Badge, ErrorBox, Icon, JobBadge, Loading, StatusBadge, TypeBadge, useLoad } from '../ui';
 
 interface Dash {
   sites: number; counts: Record<string, number>; attention: Site[]; services: Service[]; disks: Disk[];
   backups: number; backup_bytes: number; jobs: Job[]; events: Event[];
   settings: { backup_enabled: boolean; backup_time: string; trusted_proxies: string[] | null; halyard: boolean };
+  traffic: TrafficHour[]; uptime: Record<string, { checks: number; up: number; avg_ms: number }>;
+  uptime_state: Record<string, UptimeState>; vulns: Record<string, number>; resources: Metric[];
 }
 
 export function ServiceList({ services }: { services: Service[] }) {
@@ -35,6 +38,11 @@ export default function Dashboard() {
   const nav = useNavigate();
   if (!data) return error ? <ErrorBox error={error} /> : <Loading />;
   const down = data.services.filter((s) => s.active !== 'active' && s.active !== 'unknown');
+  const reqs = data.traffic.reduce((a, h) => a + h.requests, 0);
+  const checks = Object.values(data.uptime).reduce((a, u) => ({ c: a.c + u.checks, up: a.up + u.up }), { c: 0, up: 0 });
+  const sitesDown = Object.entries(data.uptime_state).filter(([, st]) => st.down).map(([n]) => n);
+  const vulnSites = Object.keys(data.vulns);
+  const res = data.resources;
   return (
     <>
       <div className="head">
@@ -47,7 +55,16 @@ export default function Dashboard() {
         <Link to="/sites" className="card stat mon-tile"><div className="k"><Icon name="site" size={14} />Sites</div><div className="v">{data.sites}</div><div className="d muted">{data.counts.wordpress ?? 0} WordPress · {(data.counts.php_db ?? 0) + (data.counts.php ?? 0)} PHP</div></Link>
         <Link to="/backups" className="card stat mon-tile"><div className="k"><Icon name="backup" size={14} />Backups</div><div className="v">{data.backups}</div><div className="d muted">{bytes(data.backup_bytes)} · {data.settings.backup_enabled ? `nightly at ${data.settings.backup_time}` : 'nightly off'}</div></Link>
         <Link to="/system" className="card stat mon-tile"><div className="k"><Icon name="server" size={14} />Services</div><div className="v">{data.services.length - down.length}/{data.services.length}</div><div className="d muted">running</div></Link>
+        <div className="card stat mon-tile"><div className="k"><Icon name="pulse" size={14} />Requests</div><div className="v">{fmtNum(reqs)}</div><div className="d muted">last 24 hours, all sites</div></div>
+        <div className="card stat mon-tile"><div className="k"><Icon name="check" size={14} />Uptime</div><div className="v">{checks.c ? ((checks.up / checks.c) * 100).toFixed(2) + '%' : '–'}</div><div className="d muted">{sitesDown.length ? `${sitesDown.length} down now` : 'last 24 hours'}</div></div>
       </div>
+      {(sitesDown.length > 0 || vulnSites.length > 0) && <div className="card" style={{ marginBottom: 16 }}>
+        <div className="ch"><h3>Monitoring alerts</h3></div>
+        <table><tbody>
+          {sitesDown.map((n) => <tr key={'d' + n} className="click" onClick={() => nav(`/sites/${n}?tab=analytics&view=uptime`)}><td><b>{n}</b><div className="dim" style={{ fontSize: 12 }}>{data.uptime_state[n].last_error}</div></td><td style={{ textAlign: 'right' }}><Badge kind="b">● Down</Badge></td></tr>)}
+          {vulnSites.map((n) => <tr key={'v' + n} className="click" onClick={() => nav(`/sites/${n}?tab=wordpress`)}><td><b>{n}</b><div className="dim" style={{ fontSize: 12 }}>Known vulnerabilities in WordPress, plugins or themes</div></td><td style={{ textAlign: 'right' }}><Badge kind="b"><Icon name="lock" size={11} />{data.vulns[n]}</Badge></td></tr>)}
+        </tbody></table>
+      </div>}
       <div className="row" style={{ alignItems: 'flex-start' }}>
         <div className="stack" style={{ flex: 3, minWidth: 0 }}>
           {data.attention.length > 0 && <div className="card">
@@ -72,6 +89,12 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="stack" style={{ flex: 2, minWidth: 0 }}>
+          <div className="card"><div className="ch"><h3>Server load</h3><span className="dim" style={{ fontSize: 12 }}>24 hours</span></div><div className="cb">
+            <div className="mon-sub">CPU, % of all cores</div>
+            <LineChart t={res.map((m) => m.time)} series={[{ name: 'CPU', values: res.map((m) => m.cpu) }]} fmt={fmtPct} step={300} height={120} area max={100} />
+            <div className="mon-sub" style={{ marginTop: 12 }}>Memory in use</div>
+            <LineChart t={res.map((m) => m.time)} series={[{ name: 'Memory', values: res.map((m) => m.mem), color: SERIES[5] }]} fmt={fmtBytes} step={300} height={120} area />
+          </div></div>
           <div className="card"><div className="ch"><h3>Services</h3></div><ServiceList services={data.services} /></div>
           <div className="card"><div className="ch"><h3>Disk</h3></div><div className="cb"><DiskBars disks={data.disks} /></div></div>
         </div>

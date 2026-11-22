@@ -325,3 +325,21 @@ a.mon-tile:hover{border-color:var(--line2)}
 .recval{word-break:break-all}
 .grid2>*{min-width:0}
 .tscroll{overflow-x:auto}
+/* analytics, monitoring and security */
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.tile.good{box-shadow:inset 3px 0 0 var(--good)}.tile.warn{box-shadow:inset 3px 0 0 var(--warn)}.tile.bad{box-shadow:inset 3px 0 0 var(--bad)}
+.toplist td{padding:8px 18px}
+.topkey{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(52vw,420px);margin-bottom:4px}
+.bar.thin{height:3px;background:transparent}
+.trace{white-space:pre-wrap;word-break:break-all;font-size:11.5px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:6px;max-height:320px;overflow:auto}
+.sqlq{white-space:pre-wrap;word-break:break-word;font-size:11.5px;max-height:90px;overflow:auto}
+.banner{display:flex;gap:12px;align-items:center;padding:12px 16px;border-radius:10px;border:1px solid}
+.banner.good,.banner-in.good{color:#86efac}.banner.good{background:#0f2a1a;border-color:#164e2b}
+.banner.bad,.banner-in.bad{color:#fca5a5}.banner.bad{background:#2a1215;border-color:#4b1f24}
+.banner b,.banner-in b{color:var(--text)}
+.banner-in{display:flex;gap:10px;align-items:flex-start;border-bottom:1px solid var(--line)}
+.upbars{display:flex;gap:2px;height:34px}
+.upbars i{flex:1;border-radius:3px;min-width:2px}
+.upbars i:hover{opacity:.75}
+.click{cursor:pointer}
