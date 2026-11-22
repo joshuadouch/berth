@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { exposureLabel, get, HalyardInfo, post, put, Settings as S, vipLabel } from '../api';
 import { Badge, Chips, ErrorBox, Field, Loading, Toggle, useLoad, useToast } from '../ui';
-import type { Me } from '../App';
+import type { Me } from '../me';
 
 interface SettingsView { settings: S; halyard_token_set: boolean; s3_secret_set: boolean; cloudflare_token_set: boolean; s3_error: string; installed_php: string[]; php_versions: string[] }
 
@@ -61,7 +61,7 @@ export default function Settings({ me }: { me: Me }) {
             <Field label="Allowed emails" help={`Your account email (${me.user.email || 'not set'}) is always allowed.`}><Chips values={f.access_emails ?? []} onChange={(v) => set({ access_emails: v })} placeholder="you@example.com" /></Field>
           </div></div>
           <MonitoringCard f={f} set={set} tokenSet={data.cloudflare_token_set} />
-          <Account me={me} />
+          <AccountCard me={me} />
         </div>
       </div>
     </>
@@ -89,7 +89,7 @@ function MonitoringCard({ f, set, tokenSet }: { f: S; set: (p: Partial<S>) => vo
   );
 }
 
-function Account({ me }: { me: Me }) {
+export function AccountCard({ me }: { me: Me }) {
   const toast = useToast();
   const [err, setErr] = useState<unknown>(null);
   const [pw, setPw] = useState({ current: '', new: '' });
@@ -120,7 +120,7 @@ function Account({ me }: { me: Me }) {
         <Field label="Current code to turn off"><input className="input mono" value={code} onChange={(e) => setCode(e.target.value)} /></Field>
         <button className="btn danger" onClick={go(() => post('/me/totp/disable', { code }).then(() => { setTotpOn(false); setCode(''); }), 'Two-factor is off')}>Turn off</button>
       </>}
-      <small className="help">Locked out? Run <span className="mono">berth passwd</span> in the container.</small>
+      {me.user.role === 'admin' && <small className="help">Locked out? Run <span className="mono">berth passwd</span> in the container.</small>}
     </div></div>
   );
 }

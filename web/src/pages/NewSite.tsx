@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { bytes, del, exposureLabel, get, HalyardInfo, Job, nameFromDomain, post, Settings, Site, SiteType, upload, UploadInfo, vipLabel } from '../api';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useMe } from '../me';
+import { AccountView, bytes, del, exposureLabel, get, HalyardInfo, Job, nameFromDomain, post, Settings, Site, SiteType, upload, UploadInfo, vipLabel } from '../api';
 import { Chips, Copyable, ErrorBox, Field, Icon, JobView, Loading, Toggle, useLoad } from '../ui';
 
 const types: { v: SiteType; icon: string; title: string; text: string }[] = [
@@ -30,7 +31,11 @@ export default function NewSite() {
   const [front, setFront] = useState(true);
   const [backups, setBackups] = useState(true);
   const [adv, setAdv] = useState(false);
-  const hal = useLoad(() => get<HalyardInfo>('/halyard'));
+  const { me, isAdmin } = useMe();
+  const [sp] = useSearchParams();
+  const hal = useLoad(() => (isAdmin ? get<HalyardInfo>('/halyard') : Promise.resolve(null)));
+  const accounts = useLoad(() => (isAdmin ? get<AccountView[]>('/accounts') : Promise.resolve([] as AccountView[])));
+  const [account, setAccount] = useState(sp.get('account') || me?.user.account_id || '');
   const [publish, setPublish] = useState(true);
   const [vip, setVip] = useState('');
   const [exposure, setExposure] = useState('');
@@ -72,6 +77,7 @@ export default function NewSite() {
         type, domain: domain.trim(), name, aliases, redirect_aliases: redirect, php_version: php, https, enabled: true,
         doc_root: docRoot, front_controller: front, backups, sftp: { enabled: false, keys: [] },
       };
+      if (isAdmin && account) body.account_id = account;
       if (halyardReady && publish) body.halyard = { enabled: true, vip_id: vip, exposure, no_dns: dns === false };
       if (type === 'wordpress') body.wp = importing ? {} : { title: title || domain.trim(), admin_user: adminUser, admin_email: adminEmail, locale };
       if (importing) body.import = { files: impFiles?.id ?? '', files_name: impFiles?.name ?? '', db: hasDB ? impDB?.id ?? '' : '', db_name: hasDB ? impDB?.name ?? '' : '' };
@@ -155,11 +161,14 @@ export default function NewSite() {
             </Field>
             <Field label="Visitors use">
               <select className="input" value={https ? 'https' : 'http'} onChange={(e) => setHttps(e.target.value === 'https')}>
-                <option value="https">HTTPS (Halyard or Cloudflare ends TLS)</option>
+                <option value="https">{isAdmin ? 'HTTPS (Halyard or Cloudflare ends TLS)' : 'HTTPS'}</option>
                 <option value="http">HTTP only</option>
               </select>
             </Field>
           </div>
+          {isAdmin && (accounts.data?.length ?? 0) > 1 && <Field label="Account" help="The customer who owns the site. They see it when they sign in.">
+            <select className="input" value={account} onChange={(e) => setAccount(e.target.value)}>
+              {accounts.data!.map((a) => <option key={a.id} value={a.id}>{a.name}{a.id === me?.user.account_id ? ' (you)' : ''}</option>)}</select></Field>}
           {halyardReady && <>
             <Toggle on={publish} onChange={setPublish} label="Publish on Halyard" help={https && cfg.data?.settings.halyard.auto_cert ? 'Adds a Halyard host for these domains and requests a certificate if none covers them.' : 'Adds a Halyard host for these domains.'} />
             {publish && <div className="grid2">

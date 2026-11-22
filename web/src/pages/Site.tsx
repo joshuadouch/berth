@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ago, Backup, bytes, del, exposureLabel, fmtDate, get, HalyardInfo, Job, post, put, Site, SiteDetail, siteURL, typeLabel, vipLabel, WPInfo } from '../api';
+import { AccountView, ago, Backup, bytes, del, exposureLabel, fmtDate, get, HalyardInfo, Job, post, put, Site, SiteDetail, siteURL, typeLabel, vipLabel, WPInfo } from '../api';
+import { useMe } from '../me';
 import FilesTab from './Files';
 import DatabaseTab from './Database';
 import { AnalyticsTab, AutoUpdateCard, SearchReplaceCard, VulnCard } from './Insights';
@@ -75,6 +76,7 @@ export default function SitePage() {
 }
 
 function Overview({ d, reload, startJob }: { d: SiteDetail; reload: () => void; startJob: (p: Promise<{ job_id: number }>, m?: string) => void }) {
+  const { isAdmin } = useMe();
   const s = d.site;
   const toast = useToast();
   const [dbpw, setDbpw] = useState(false);
@@ -105,7 +107,7 @@ function Overview({ d, reload, startJob }: { d: SiteDetail; reload: () => void; 
         </div>
       </div>
       <div className="stack">
-        <HalyardCard s={s} reload={reload} />
+        {isAdmin && <HalyardCard s={s} reload={reload} />}
         {s.db && <div className="card"><div className="ch"><h3>Database</h3>
           <button className="btn s" onClick={() => confirm('Set a new database password?' + (s.type === 'wordpress' ? ' wp-config.php is updated for you.' : ' Update your app\'s config afterwards.')) && act(post('/sites/' + s.id + '/db/password'), 'Password changed')}>New password</button></div>
           <div className="cb">
@@ -179,6 +181,7 @@ function HalyardCard({ s, reload }: { s: Site; reload: () => void }) {
 }
 
 function SettingsTab({ s, sftp, onSaved }: { s: Site; sftp: boolean; onSaved: (job: number) => void }) {
+  const { isAdmin } = useMe();
   const cfg = useLoad(() => get<{ installed_php: string[] }>('/settings'));
   const [f, setF] = useState<Site>(s);
   const [keys, setKeys] = useState((s.sftp.keys ?? []).join('\n'));
@@ -209,7 +212,7 @@ function SettingsTab({ s, sftp, onSaved }: { s: Site; sftp: boolean; onSaved: (j
         {(f.aliases?.length ?? 0) > 0 && <Toggle on={f.redirect_aliases} onChange={(v) => set({ redirect_aliases: v })} label="Redirect other domains to the main domain" />}
         <Field label="Visitors use">
           <select className="input" value={f.https ? 'https' : 'http'} onChange={(e) => set({ https: e.target.value === 'https' })}>
-            <option value="https">HTTPS (Halyard or Cloudflare ends TLS)</option><option value="http">HTTP only</option>
+            <option value="https">{isAdmin ? 'HTTPS (Halyard or Cloudflare ends TLS)' : 'HTTPS'}</option><option value="http">HTTP only</option>
           </select>
         </Field>
         {urlChanged && s.type === 'wordpress' && <Toggle on={replace} onChange={setReplace} label={`Change ${siteURL(s)} to ${siteURL(f)} in the WordPress database`} help="Runs wp search-replace and updates the home and site URLs. Leave on unless you are doing it yourself." />}
@@ -218,8 +221,8 @@ function SettingsTab({ s, sftp, onSaved }: { s: Site; sftp: boolean; onSaved: (j
         <div className="grid2">
           <Field label="PHP version"><select className="input" value={f.php_version} onChange={(e) => set({ php_version: e.target.value })}>
             {(cfg.data?.installed_php ?? [f.php_version]).map((v) => <option key={v} value={v}>PHP {v}</option>)}</select></Field>
-          <Field label="Workers" help="Most PHP requests this site runs at once."><input className="input" type="number" min={1} max={200} value={f.max_children} onChange={(e) => set({ max_children: +e.target.value })} /></Field>
-          <Field label="Memory limit (MB)"><input className="input" type="number" min={32} value={f.memory_mb} onChange={(e) => set({ memory_mb: +e.target.value })} /></Field>
+          <Field label="Workers" help={isAdmin ? 'Most PHP requests this site runs at once.' : 'Set by your hosting plan.'}><input className="input" type="number" min={1} max={200} disabled={!isAdmin} value={f.max_children} onChange={(e) => set({ max_children: +e.target.value })} /></Field>
+          <Field label="Memory limit (MB)"><input className="input" type="number" min={32} disabled={!isAdmin} value={f.memory_mb} onChange={(e) => set({ memory_mb: +e.target.value })} /></Field>
           <Field label="Upload limit (MB)"><input className="input" type="number" min={1} value={f.upload_mb} onChange={(e) => set({ upload_mb: +e.target.value })} /></Field>
         </div>
         <div className="grid3">
@@ -227,9 +230,9 @@ function SettingsTab({ s, sftp, onSaved }: { s: Site; sftp: boolean; onSaved: (j
           <Field label="Max input vars"><input className="input" type="number" min={1} value={f.php?.max_input_vars || 5000} onChange={(e) => set({ php: { ...f.php, max_input_vars: +e.target.value } })} /></Field>
           <Field label="Max input time (s)" help="-1 uses the execution time."><input className="input" type="number" min={-1} max={3600} value={f.php?.max_input_time || 300} onChange={(e) => set({ php: { ...f.php, max_input_time: +e.target.value } })} /></Field>
         </div>
-        <Field label="More php.ini settings" help="One key = value per line, such as date.timezone = Europe/London or opcache.revalidate_freq = 0. Applied to this site's PHP only; PHP checks them before they go live.">
+        {isAdmin && <Field label="More php.ini settings" help="One key = value per line, such as date.timezone = Europe/London or opcache.revalidate_freq = 0. Applied to this site's PHP only; PHP checks them before they go live.">
           <textarea className="input mono" style={{ minHeight: 90 }} spellCheck={false} value={f.php?.custom ?? ''} placeholder={'date.timezone = Europe/London\nmax_file_uploads = 50'} onChange={(e) => set({ php: { ...f.php, custom: e.target.value } })} />
-        </Field>
+        </Field>}
         {s.type !== 'wordpress' && <>
           <Field label="Document root inside public" help="Leave empty to serve public itself."><input className="input mono" value={f.doc_root} onChange={(e) => set({ doc_root: e.target.value })} /></Field>
           <Toggle on={f.front_controller} onChange={(v) => set({ front_controller: v })} label="Send unknown paths to index.php" />
@@ -249,9 +252,34 @@ function SettingsTab({ s, sftp, onSaved }: { s: Site; sftp: boolean; onSaved: (j
         <button className="btn p" disabled={busy || busySite} onClick={save}>Save changes</button>
         <button className="btn danger" disabled={busySite} onClick={() => setDelOpen(true)}><Icon name="trash" size={13} />Delete site</button>
       </div>
-      <NginxCard s={s} />
+      {isAdmin && <OwnerCard s={s} />}
+      {isAdmin && <NginxCard s={s} />}
       {delOpen && <DeleteModal s={s} onClose={() => setDelOpen(false)} />}
     </div>
+  );
+}
+
+// OwnerCard lets an admin give the site to another account.
+function OwnerCard({ s }: { s: Site }) {
+  const accounts = useLoad(() => get<AccountView[]>('/accounts'));
+  const [acct, setAcct] = useState(s.account_id);
+  const [err, setErr] = useState<unknown>(null);
+  const toast = useToast();
+  if (!accounts.data || accounts.data.length < 2) return null;
+  const move = () => {
+    const to = accounts.data!.find((a) => a.id === acct);
+    if (!to || !confirm(`Give ${s.domain} to ${to.name}? Their logins will see and manage it.`)) return;
+    put('/sites/' + s.id + '/account', { account_id: acct }).then(() => toast('Site moved to ' + to.name)).catch(setErr);
+  };
+  return (
+    <div className="card" style={{ marginTop: 24 }}><div className="ch"><h3>Owner</h3></div><div className="cb">
+      <ErrorBox error={err} />
+      <div className="row" style={{ alignItems: 'flex-end' }}>
+        <Field label="Account" style={{ flex: 1, marginBottom: 0 }}><select className="input" value={acct} onChange={(e) => setAcct(e.target.value)}>
+          {accounts.data.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
+        <button className="btn" disabled={acct === s.account_id} onClick={move}>Move site</button>
+      </div>
+    </div></div>
   );
 }
 

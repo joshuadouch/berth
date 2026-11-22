@@ -16,9 +16,13 @@ import (
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	sites, err := s.Store.Sites(ctx)
+	sites, err := s.visibleSites(r)
 	if err != nil {
 		writeErr(w, 500, err.Error())
+		return
+	}
+	if !currentUser(r).IsAdmin() {
+		s.customerDashboard(w, r, sites)
 		return
 	}
 	counts := map[string]int{}
@@ -54,8 +58,67 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// customerDashboard is the dashboard of a customer: their sites only, and
+// nothing about the server.
+func (s *Server) customerDashboard(w http.ResponseWriter, r *http.Request, sites []model.Site) {
+	ctx := r.Context()
+	names := siteNames(sites)
+	mine := map[string]bool{}
+	for _, n := range names {
+		mine[n] = true
+	}
+	counts := map[string]int{}
+	problems := []model.Site{}
+	for _, site := range sites {
+		counts[string(site.Type)]++
+		if site.Status == model.StatusError || !site.Enabled {
+			problems = append(problems, site)
+		}
+	}
+	all, _ := s.Engine.Backups(ctx, "")
+	backups := 0
+	var backupBytes int64
+	for _, b := range all {
+		if mine[b.Site] {
+			backups++
+			backupBytes += b.Size
+		}
+	}
+	usage := map[string]engine.Usage{}
+	for n, u := range s.Engine.SiteUsage() {
+		if mine[n] {
+			usage[n] = u
+		}
+	}
+	jobs, _ := s.Store.JobsIn(ctx, names, 8)
+	events, _ := s.Store.EventsIn(ctx, names, 12)
+	since := time.Now().Add(-24 * time.Hour)
+	traffic, _ := s.Store.TrafficIn(ctx, names, since.Unix()/3600*3600)
+	upAll, _ := s.Store.UptimeSince(ctx, since.Unix())
+	uptime := map[string]any{}
+	for n, u := range upAll {
+		if mine[n] {
+			uptime[n] = u
+		}
+	}
+	writeJSON(w, 200, map[string]any{
+		"traffic": traffic, "uptime": uptime, "uptime_state": s.Engine.UptimeStates(ctx, sites),
+		"vulns": s.Engine.VulnCounts(ctx, sites), "resources": []any{},
+		"sites": len(sites), "counts": counts, "attention": problems,
+		"services": []any{}, "disks": []any{}, "usage": usage,
+		"backups": backups, "backup_bytes": backupBytes, "jobs": jobs, "events": events,
+		"settings": map[string]any{"backup_enabled": false, "backup_time": "", "trusted_proxies": []string{}, "halyard": false},
+		"customer": true,
+	})
+}
+
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
-	ev, err := s.Store.Events(r.Context(), r.URL.Query().Get("site"), 200)
+	site := r.URL.Query().Get("site")
+	if !currentUser(r).IsAdmin() {
+		s.scoped(w, r, site, func(names []string) (any, error) { return s.Store.EventsIn(r.Context(), names, 200) })
+		return
+	}
+	ev, err := s.Store.Events(r.Context(), site, 200)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -63,7 +126,37 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, ev)
 }
 
+// scoped answers a customer's request for logs of one of their sites, or of
+// all of them.
+func (s *Server) scoped(w http.ResponseWriter, r *http.Request, site string, f func(names []string) (any, error)) {
+	var names []string
+	if site != "" {
+		if !s.mayOpenSiteName(r, site) {
+			writeErr(w, 404, "not found")
+			return
+		}
+		names = []string{site}
+	} else {
+		sites, err := s.visibleSites(r)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		names = siteNames(sites)
+	}
+	v, err := f(names)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, v)
+}
+
 func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
+	if !currentUser(r).IsAdmin() {
+		s.scoped(w, r, r.URL.Query().Get("site"), func(names []string) (any, error) { return s.Store.JobsIn(r.Context(), names, 100) })
+		return
+	}
 	jobs, err := s.Store.Jobs(r.Context(), r.URL.Query().Get("site"), 100)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -79,15 +172,40 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err)
 		return
 	}
+	if !s.mayOpenSiteName(r, j.Site) {
+		writeErr(w, 404, "not found")
+		return
+	}
 	writeJSON(w, 200, j)
 }
 
 // Backups ----------------------------------------------------------------------
 
 func (s *Server) listBackups(w http.ResponseWriter, r *http.Request) {
-	b, err := s.Engine.Backups(r.Context(), r.URL.Query().Get("site"))
+	site := r.URL.Query().Get("site")
+	if site != "" && !s.mayOpenSiteName(r, site) {
+		writeErr(w, 404, "not found")
+		return
+	}
+	b, err := s.Engine.Backups(r.Context(), site)
 	if err != nil {
 		writeErr(w, 500, err.Error())
+		return
+	}
+	if !currentUser(r).IsAdmin() {
+		sites, _ := s.visibleSites(r)
+		mine := map[string]bool{}
+		for _, n := range siteNames(sites) {
+			mine[n] = true
+		}
+		out := b[:0:0]
+		for _, x := range b {
+			if mine[x.Site] {
+				out = append(out, x)
+			}
+		}
+		st, _ := s.Store.Settings(r.Context())
+		writeJSON(w, 200, map[string]any{"backups": out, "dir": "", "keep": st.BackupKeep, "enabled": st.BackupEnabled, "time": st.BackupTime})
 		return
 	}
 	st, _ := s.Store.Settings(r.Context())
@@ -229,6 +347,16 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	st, err := s.Store.Settings(r.Context())
 	if err != nil {
 		writeErr(w, 500, err.Error())
+		return
+	}
+	if u := currentUser(r); !u.IsAdmin() {
+		// Customers only need the defaults for new sites.
+		email := u.Email
+		if a, err := s.Store.Account(r.Context(), u.AccountID); err == nil && email == "" {
+			email = a.Email
+		}
+		view := model.Settings{DefaultPHP: st.DefaultPHP, WPLocale: st.WPLocale, WPAdminUser: st.WPAdminUser, WPAdminEmail: email}
+		writeJSON(w, 200, map[string]any{"settings": view, "installed_php": s.Engine.InstalledPHP(), "php_versions": model.PHPVersions})
 		return
 	}
 	tokenSet := st.Halyard.Token != ""

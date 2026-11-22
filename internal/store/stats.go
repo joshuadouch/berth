@@ -191,6 +191,32 @@ func (s *Store) Traffic(ctx context.Context, site string, since int64) ([]Traffi
 	return out, rows.Err()
 }
 
+// TrafficIn returns the combined hourly traffic of the named sites.
+func (s *Store) TrafficIn(ctx context.Context, sites []string, since int64) ([]TrafficHour, error) {
+	out := []TrafficHour{}
+	if len(sites) == 0 {
+		return out, nil
+	}
+	args := []any{since}
+	for _, n := range sites {
+		args = append(args, n)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT hour,SUM(requests),SUM(bytes),SUM(s2),SUM(s3),SUM(s4),SUM(s5),SUM(bots),SUM(ms) FROM traffic
+	  WHERE hour>=? AND site IN (`+marks(len(sites))+`) GROUP BY hour ORDER BY hour`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var t TrafficHour
+		if err := rows.Scan(&t.Hour, &t.Requests, &t.Bytes, &t.S2, &t.S3, &t.S4, &t.S5, &t.Bots, &t.MS); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 // Top returns the biggest keys of a kind since a day (YYYY-MM-DD).
 func (s *Store) Top(ctx context.Context, site, kind, sinceDay, order string, limit int) ([]TopEntry, error) {
 	col := "SUM(requests)"

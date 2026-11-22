@@ -3,6 +3,7 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"regexp"
@@ -89,8 +90,10 @@ type SiteImport struct {
 
 // Site is one website.
 type Site struct {
-	ID         string   `json:"id"`   // equal to Name
-	Name       string   `json:"name"` // short name: Linux user, database and directory
+	ID   string `json:"id"`   // equal to Name
+	Name string `json:"name"` // short name: Linux user, database and directory
+	// AccountID is the account that owns the site.
+	AccountID  string   `json:"account_id"`
 	Type       SiteType `json:"type"`
 	Domain     string   `json:"domain"`
 	Aliases    []string `json:"aliases"`
@@ -158,6 +161,7 @@ var PHPManagedKeys = map[string]bool{
 	"open_basedir": true, "upload_tmp_dir": true, "sys_temp_dir": true, "session.save_path": true,
 	"error_log": true, "memory_limit": true, "upload_max_filesize": true, "post_max_size": true,
 	"max_execution_time": true, "max_input_vars": true, "max_input_time": true,
+	"disable_functions": true, "disable_classes": true, "extension": true, "zend_extension": true, "extension_dir": true,
 }
 
 var iniKeyRe = regexp.MustCompile(`^[a-z][a-z0-9_.]{1,79}$`)
@@ -539,7 +543,14 @@ func (st *Settings) Normalize() error {
 	return nil
 }
 
-// User is a panel login.
+// User roles. Admins run the server and see every account; customers see
+// only their own account's sites.
+const (
+	RoleAdmin    = "admin"
+	RoleCustomer = "customer"
+)
+
+// User is a panel login. Every user belongs to one account.
 type User struct {
 	ID           string `json:"id"`
 	Username     string `json:"username"`
@@ -547,6 +558,36 @@ type User struct {
 	PasswordHash string `json:"-"`
 	TOTPSecret   string `json:"-"`
 	TOTPEnabled  bool   `json:"totp_enabled"`
+	Role         string `json:"role"`
+	AccountID    string `json:"account_id"`
+}
+
+// IsAdmin reports whether the user runs the server.
+func (u User) IsAdmin() bool { return u.Role == RoleAdmin }
+
+// Account owns sites. A hosting customer is one account; the server's owner
+// has an account of their own for their sites.
+type Account struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	Notes string `json:"notes"`
+	// Suspended accounts cannot sign in.
+	Suspended bool      `json:"suspended"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Normalize tidies and validates an account.
+func (a *Account) Normalize() error {
+	a.Name = strings.TrimSpace(a.Name)
+	a.Email = strings.ToLower(strings.TrimSpace(a.Email))
+	if a.Name == "" || len(a.Name) > 100 {
+		return errors.New("account name must be 1-100 characters")
+	}
+	if a.Email != "" && !strings.Contains(a.Email, "@") {
+		return errors.New("email looks invalid")
+	}
+	return nil
 }
 
 // Event is an entry in the activity log.

@@ -398,3 +398,15 @@ func (e *Engine) SetNginxCustom(ctx context.Context, name, custom, author string
 	e.Store.AddEvent(ctx, "info", "site", name, author+" changed the custom nginx config of "+next.Domain)
 	return next, nil
 }
+
+// MoveSite gives a site to another account.
+func (e *Engine) MoveSite(ctx context.Context, id, accountID string) (model.Site, error) {
+	unlock := e.lockSite(id)
+	defer unlock()
+	s, err := e.Store.Site(ctx, id)
+	if err != nil {
+		return s, err
+	}
+	s.AccountID = accountID
+	return s, e.Store.SaveSite(ctx, s)
+}

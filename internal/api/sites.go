@@ -23,7 +23,7 @@ type siteRow struct {
 }
 
 func (s *Server) listSites(w http.ResponseWriter, r *http.Request) {
-	sites, err := s.Store.Sites(r.Context())
+	sites, err := s.visibleSites(r)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -55,6 +55,10 @@ func (s *Server) site(w http.ResponseWriter, r *http.Request) (model.Site, bool)
 		writeStoreErr(w, err)
 		return site, false
 	}
+	if !canSee(currentUser(r), site) {
+		writeErr(w, 404, "not found")
+		return site, false
+	}
 	return site, true
 }
 
@@ -74,7 +78,7 @@ func (s *Server) getSite(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"site": site, "usage": s.Engine.SiteUsage()[site.Name], "backups": backups, "jobs": jobs, "events": events,
 		"dir": s.Engine.Paths().SiteDir(site.Name), "user": site.User(), "socket": s.Cfg.Socket(site.Name),
-		"sftp_available": s.Cfg.SFTP.Enabled, "cloudflare": st.CloudflareToken != "", "uptime": uptime,
+		"sftp_available": s.Cfg.SFTP.Enabled, "cloudflare": st.CloudflareToken != "" && currentUser(r).IsAdmin(), "uptime": uptime,
 		"vulns": s.Engine.VulnCounts(r.Context(), []model.Site{site})[site.Name],
 	})
 }
@@ -85,7 +89,27 @@ func (s *Server) createSite(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	res, err := s.Engine.CreateSite(r.Context(), req, currentUser(r).Username)
+	u := currentUser(r)
+	switch {
+	case !u.IsAdmin():
+		// Customers' sites are theirs, and server-level options stay off.
+		req.AccountID = u.AccountID
+		req.Halyard = model.HalyardLink{}
+		req.NginxCustom = ""
+		req.MemoryMB, req.MaxChildren = 0, 0
+		req.PHP.Custom = ""
+		if req.WP != nil && req.WP.AdminEmail == "" {
+			req.WP.AdminEmail = u.Email
+		}
+	case req.AccountID == "":
+		req.AccountID = u.AccountID
+	default:
+		if _, err := s.Store.Account(r.Context(), req.AccountID); err != nil {
+			writeErr(w, 400, "no such account")
+			return
+		}
+	}
+	res, err := s.Engine.CreateSite(r.Context(), req, u.Username)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -103,6 +127,15 @@ func (s *Server) updateSite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Site.ID = r.PathValue("id")
+	if u := currentUser(r); !u.IsAdmin() {
+		// Resource limits and raw PHP settings are the admin's to set.
+		cur, err := s.Store.Site(r.Context(), req.Site.ID)
+		if err != nil {
+			writeStoreErr(w, err)
+			return
+		}
+		req.MemoryMB, req.MaxChildren, req.PHP.Custom = cur.MemoryMB, cur.MaxChildren, cur.PHP.Custom
+	}
 	site, job, err := s.Engine.UpdateSite(r.Context(), req.Site, req.ReplaceURLs, currentUser(r).Username)
 	if err != nil {
 		writeErr(w, 400, err.Error())
