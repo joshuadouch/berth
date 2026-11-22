@@ -313,20 +313,30 @@ export function VulnCard({ s }: { s: Site }) {
           <div><b>{r.vulns.length ? `${r.vulns.length} known vulnerabilit${r.vulns.length === 1 ? 'y' : 'ies'}` : 'No known vulnerabilities'}</b>
             <div className="dim" style={{ fontSize: 12 }}>{r.items} items checked {fmtDate(r.checked)}{r.error ? ' · ' + r.error : ''}</div></div>
         </div>
-        {r.vulns.length > 0 && <table><tbody>{r.vulns.map((v, i) => (
-          <tr key={i}><td style={{ whiteSpace: 'normal' }}>
-            <div><b>{v.name}</b> <span className="dim">{v.kind} {v.version}</span>{!v.active && v.kind !== 'core' && <span className="dim"> · inactive</span>}</div>
-            <div style={{ fontSize: 12.5 }}>{v.title}</div>
-            <div className="dim" style={{ fontSize: 12 }}>
-              {v.unfixed ? 'No fix released yet. Consider removing it.' : v.fixed_in ? `Fixed in ${v.fixed_in}.` : 'Update to the latest version.'}
-              {v.update && ` ${v.update} is available.`}
-              {(v.links ?? []).slice(0, 2).map((l) => <a key={l} href={l} target="_blank" rel="noreferrer" style={{ marginLeft: 8 }}>{(v.ids ?? [])[0] || 'Details'}</a>)}
+        {r.vulns.length > 0 && <div className="vulnlist">{r.vulns.map((v, i) => (
+          <div className="vulnrow" key={i}>
+            <div className="vulnmain">
+              <div><b>{v.name}</b> <span className="dim">{v.kind} {v.version}</span>{!v.active && v.kind !== 'core' && <span className="dim"> · inactive</span>}</div>
+              <div style={{ fontSize: 12.5 }}>{v.title}</div>
+              <div className="dim" style={{ fontSize: 12 }}>
+                {v.unfixed ? 'No fix released yet. Consider removing it.' : v.fixed_in ? `Fixed in ${v.fixed_in}.` : 'Update to the latest version.'}
+                {v.update && ` ${v.update} is available.`}
+                {(v.links ?? []).slice(0, 2).map((l, j) => <a key={l} href={l} target="_blank" rel="noreferrer" style={{ marginLeft: 8 }}>{linkLabel(l, j === 0 ? (v.ids ?? [])[0] : undefined)}</a>)}
+              </div>
             </div>
-          </td><td style={{ textAlign: 'right', verticalAlign: 'top' }}>{v.severity ? <Badge kind={sevKind[v.severity] ?? 'n'}>{v.severity}{v.score ? ' ' + v.score.toFixed(1) : ''}</Badge> : null}</td></tr>
-        ))}</tbody></table>}
+            {v.severity ? <Badge kind={sevKind[v.severity] ?? 'n'}>{v.severity}{v.score ? ' ' + v.score.toFixed(1) : ''}</Badge> : null}
+          </div>
+        ))}</div>}
       </>}
     </div>
   );
+}
+
+// linkLabel names a reference link by its ID, or by its site when the ID
+// would repeat (a CVE often has a CVE.org and an NVD link).
+function linkLabel(link: string, id?: string) {
+  if (id) return id;
+  try { return new URL(link).hostname.replace(/^www\./, ''); } catch { return 'Details'; }
 }
 
 const dayLabel: Record<string, string> = { daily: 'Every day', mon: 'Mondays', tue: 'Tuesdays', wed: 'Wednesdays', thu: 'Thursdays', fri: 'Fridays', sat: 'Saturdays', sun: 'Sundays' };
