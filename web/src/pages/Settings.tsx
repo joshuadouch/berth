@@ -212,7 +212,7 @@ function S3Card({ f, set, secretSet, remoteError }: { f: S; set: (p: Partial<S>)
       <Toggle on={c.path_style} onChange={(v) => setc({ path_style: v })} label="Path-style URLs" help="Only for MinIO and similar self-hosted storage." />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <button className="btn" disabled={busy || !c.endpoint || !c.bucket} onClick={run}>{busy ? 'Testing…' : 'Test connection'}</button>
-        {test && <span style={{ fontSize: 12.5, color: test.ok ? '#86efac' : '#fca5a5' }}>{test.msg}</span>}
+        {test && <span style={{ fontSize: 12.5, color: test.ok ? 'var(--good)' : 'var(--bad)' }}>{test.msg}</span>}
       </div>
       <small className="help">Give the key access to this bucket only. Backups hold database passwords, so keep the bucket private.</small>
     </div></div>

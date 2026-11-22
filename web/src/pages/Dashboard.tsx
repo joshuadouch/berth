@@ -33,7 +33,12 @@ export function DiskBars({ disks }: { disks: Disk[] }) {
   })}</>;
 }
 
-export default function Dashboard() {
+function greeting() {
+  const h = new Date().getHours();
+  return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+}
+
+export default function Dashboard({ me }: { me: string }) {
   const { data, error } = useLoad(() => get<Dash>('/dashboard'), [], 15000);
   const nav = useNavigate();
   if (!data) return error ? <ErrorBox error={error} /> : <Loading />;
@@ -45,18 +50,21 @@ export default function Dashboard() {
   const res = data.resources;
   return (
     <>
-      <div className="head">
-        <div><h1>Dashboard</h1><div className="sub">Your sites, the services behind them and what happened lately.</div></div>
-        <Link to="/sites/new" className="btn p"><Icon name="plus" />New site</Link>
+      <div className="hero">
+        <div className="head">
+          <div><h1>{greeting()}, {me}</h1>
+            <div className="sub">{data.sites} site{data.sites === 1 ? '' : 's'} on this server · {sitesDown.length ? `${sitesDown.length} down right now` : 'all sites answering'}{vulnSites.length ? ` · ${vulnSites.length} with known vulnerabilities` : ''}</div></div>
+          <Link to="/sites/new" className="btn white"><Icon name="plus" />New site</Link>
+        </div>
       </div>
       {down.length > 0 && <div className="err">Not running: {down.map((s) => s.label).join(', ')}. Sites that use them are down.</div>}
       {!data.settings.trusted_proxies?.length && <div className="warnbox">No trusted proxies are set, so sites see the load balancer's address instead of the visitor's and cannot tell HTTPS from HTTP. Add your Halyard nodes on the <Link to="/settings">Settings</Link> page.</div>}
       <div className="row" style={{ marginBottom: 16 }}>
-        <Link to="/sites" className="card stat mon-tile"><div className="k"><Icon name="site" size={14} />Sites</div><div className="v">{data.sites}</div><div className="d muted">{data.counts.wordpress ?? 0} WordPress · {(data.counts.php_db ?? 0) + (data.counts.php ?? 0)} PHP</div></Link>
-        <Link to="/backups" className="card stat mon-tile"><div className="k"><Icon name="backup" size={14} />Backups</div><div className="v">{data.backups}</div><div className="d muted">{bytes(data.backup_bytes)} · {data.settings.backup_enabled ? `nightly at ${data.settings.backup_time}` : 'nightly off'}</div></Link>
-        <Link to="/system" className="card stat mon-tile"><div className="k"><Icon name="server" size={14} />Services</div><div className="v">{data.services.length - down.length}/{data.services.length}</div><div className="d muted">running</div></Link>
-        <div className="card stat mon-tile"><div className="k"><Icon name="pulse" size={14} />Requests</div><div className="v">{fmtNum(reqs)}</div><div className="d muted">last 24 hours, all sites</div></div>
-        <div className="card stat mon-tile"><div className="k"><Icon name="check" size={14} />Uptime</div><div className="v">{checks.c ? ((checks.up / checks.c) * 100).toFixed(2) + '%' : '–'}</div><div className="d muted">{sitesDown.length ? `${sitesDown.length} down now` : 'last 24 hours'}</div></div>
+        <Link to="/sites" className="card stat mon-tile"><div className="k"><span className="ic violet"><Icon name="site" size={15} /></span>Sites</div><div className="v">{data.sites}</div><div className="d muted">{data.counts.wordpress ?? 0} WordPress · {(data.counts.php_db ?? 0) + (data.counts.php ?? 0)} PHP</div></Link>
+        <Link to="/backups" className="card stat mon-tile"><div className="k"><span className="ic teal"><Icon name="backup" size={15} /></span>Backups</div><div className="v">{data.backups}</div><div className="d muted">{bytes(data.backup_bytes)} · {data.settings.backup_enabled ? `nightly at ${data.settings.backup_time}` : 'nightly off'}</div></Link>
+        <Link to="/system" className="card stat mon-tile"><div className="k"><span className="ic blue"><Icon name="server" size={15} /></span>Services</div><div className="v">{data.services.length - down.length}/{data.services.length}</div><div className="d muted">running</div></Link>
+        <div className="card stat mon-tile"><div className="k"><span className="ic orange"><Icon name="pulse" size={15} /></span>Requests</div><div className="v">{fmtNum(reqs)}</div><div className="d muted">last 24 hours, all sites</div></div>
+        <div className="card stat mon-tile"><div className="k"><span className="ic pink"><Icon name="check" size={15} /></span>Uptime</div><div className="v">{checks.c ? ((checks.up / checks.c) * 100).toFixed(2) + '%' : '–'}</div><div className="d muted">{sitesDown.length ? `${sitesDown.length} down now` : 'last 24 hours'}</div></div>
       </div>
       {(sitesDown.length > 0 || vulnSites.length > 0) && <div className="card" style={{ marginBottom: 16 }}>
         <div className="ch"><h3>Monitoring alerts</h3></div>

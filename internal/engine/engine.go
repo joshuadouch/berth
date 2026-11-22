@@ -77,7 +77,10 @@ func (e *Engine) lockSite(name string) func() {
 
 // InstalledPHP lists PHP versions whose FPM binary exists.
 func (e *Engine) InstalledPHP() []string {
-	var out []string
+	out := []string{}
+	if e.Cfg.DryRun {
+		return append([]string{}, model.PHPVersions...)
+	}
 	for _, v := range model.PHPVersions {
 		if _, err := os.Stat(config.V(e.Cfg.PHP.FPMBinary, v)); err == nil {
 			out = append(out, v)

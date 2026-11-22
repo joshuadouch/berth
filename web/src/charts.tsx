@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-// Categorical series colours for the dark surface, in fixed order (validated
-// for colour-vision deficiency against #111827). Status colours are separate.
-export const SERIES = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#9085e9'];
-export const STATUS = { good: '#22c55e', warn: '#f59e0b', bad: '#ef4444', maint: '#4f8cff', none: '#334155' };
+// Categorical series colours for the light surface, in fixed order: Berth's
+// violet first, then the validated light-mode categorical steps. Status
+// colours are separate and never used for series.
+export const SERIES = ['#6250d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#2a78d6'];
+export const STATUS = { good: '#0ca30c', warn: '#fab219', bad: '#d03b3b', maint: '#2a78d6', none: '#e8e6f3' };
 
 export interface Series { name: string; values: (number | null)[]; color?: string }
 
