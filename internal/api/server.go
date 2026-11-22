@@ -143,6 +143,10 @@ func (s *Server) Handler() http.Handler {
 	ad("POST /api/update", s.startUpdate)
 	ad("POST /api/update/check", s.checkUpdate)
 
+	ad("GET /api/plans", s.listPlans)
+	ad("POST /api/plans", s.savePlan)
+	ad("PUT /api/plans/{id}", s.savePlan)
+	ad("DELETE /api/plans/{id}", s.deletePlan)
 	ad("GET /api/accounts", s.listAccounts)
 	ad("POST /api/accounts", s.createAccount)
 	ad("GET /api/accounts/{id}", s.getAccount)

@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { ago, bytes, Disk, Event, get, Job, Metric, Service, Site, TrafficHour, UptimeState } from '../api';
+import { ago, bytes, Disk, Event, get, Job, Metric, PlanUsage, Service, Site, TrafficHour, UptimeState } from '../api';
 import { fmtBytes, fmtNum, fmtPct, LineChart, SERIES } from '../charts';
 import { Badge, ErrorBox, Icon, JobBadge, Loading, StatusBadge, TypeBadge, useLoad } from '../ui';
 
@@ -8,7 +8,7 @@ interface Dash {
   backups: number; backup_bytes: number; jobs: Job[]; events: Event[];
   settings: { backup_enabled: boolean; backup_time: string; trusted_proxies: string[] | null; halyard: boolean };
   traffic: TrafficHour[]; uptime: Record<string, { checks: number; up: number; avg_ms: number }>;
-  uptime_state: Record<string, UptimeState>; vulns: Record<string, number>; resources: Metric[]; customer?: boolean;
+  uptime_state: Record<string, UptimeState>; vulns: Record<string, number>; resources: Metric[]; customer?: boolean; plan?: PlanUsage;
 }
 
 export function ServiceList({ services }: { services: Service[] }) {
@@ -58,6 +58,9 @@ export default function Dashboard({ me }: { me: string }) {
           <Link to="/sites/new" className="btn white"><Icon name="plus" />New site</Link>
         </div>
       </div>
+      {cust && data.plan?.plan?.disk_mb ? data.plan.disk_used >= data.plan.plan.disk_mb * 1048576
+        ? <div className="err">Your account has used all {bytes(data.plan.plan.disk_mb * 1048576)} of its disk space, so new sites and uploads are blocked. Free some space or <Link to="/account">see your plan</Link>.</div>
+        : data.plan.disk_used >= data.plan.plan.disk_mb * 1048576 * 0.9 ? <div className="warnbox">Your account has used {bytes(data.plan.disk_used)} of {bytes(data.plan.plan.disk_mb * 1048576)} disk space.</div> : null : null}
       {down.length > 0 && <div className="err">Not running: {down.map((s) => s.label).join(', ')}. Sites that use them are down.</div>}
       {!cust && !data.settings.trusted_proxies?.length && <div className="warnbox">No trusted proxies are set, so sites see the load balancer's address instead of the visitor's and cannot tell HTTPS from HTTP. Add your Halyard nodes on the <Link to="/settings">Settings</Link> page.</div>}
       <div className="row" style={{ marginBottom: 16 }}>

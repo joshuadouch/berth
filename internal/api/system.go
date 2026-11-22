@@ -108,7 +108,7 @@ func (s *Server) customerDashboard(w http.ResponseWriter, r *http.Request, sites
 		"services": []any{}, "disks": []any{}, "usage": usage,
 		"backups": backups, "backup_bytes": backupBytes, "jobs": jobs, "events": events,
 		"settings": map[string]any{"backup_enabled": false, "backup_time": "", "trusted_proxies": []string{}, "halyard": false},
-		"customer": true,
+		"customer": true, "plan": s.planUsage(ctx, currentUser(r).AccountID),
 	})
 }
 

@@ -338,6 +338,18 @@ func (p *Plugin) createZone(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if plan, ok := p.host.Plan(ctx, account); ok && plan.DNSZones > 0 {
+		n := 0
+		for _, o := range owners {
+			if o.Account == account {
+				n++
+			}
+		}
+		if n >= plan.DNSZones {
+			plugin.WriteErr(w, 400, fmt.Sprintf("plan %s allows %d domain%s in DNS", plan.Name, plan.DNSZones, map[bool]string{true: "", false: "s"}[plan.DNSZones == 1]))
+			return
+		}
+	}
 	pd := p.primary(c)
 	adopted := false
 	if _, err := pd.Zone(ctx, zone); err == nil {

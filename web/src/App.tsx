@@ -14,6 +14,7 @@ import System from './pages/System';
 import Settings from './pages/Settings';
 import Plugins, { PluginPage, pluginPages } from './pages/Plugins';
 import Accounts, { AccountPage } from './pages/Accounts';
+import Plans from './pages/Plans';
 import MyAccount from './pages/MyAccount';
 import { Me, MeProvider } from './me';
 
@@ -27,13 +28,13 @@ const buildNav = (plugins: PluginView[], admin: boolean) => [
   ...plugins.filter((p) => p.enabled && p.nav_label && pluginPages[p.id]).map((p) => ['/p/' + p.id, p.icon || 'plug', p.nav_label]),
   ['/backups', 'backup', 'Backups'], ['/activity', 'pulse', 'Activity'],
   ...(admin
-    ? [['Platform'], ['/accounts', 'users', 'Accounts'], ['/system', 'server', 'System'], ['/plugins', 'plug', 'Plugins'], ['/settings', 'set', 'Settings']]
+    ? [['Platform'], ['/accounts', 'users', 'Accounts'], ['/plans', 'layers', 'Plans'], ['/system', 'server', 'System'], ['/plugins', 'plug', 'Plugins'], ['/settings', 'set', 'Settings']]
     : [['Account'], ['/account', 'set', 'My account']]),
 ];
 
 const titles: Record<string, string> = {
   '': 'Dashboard', sites: 'Sites', backups: 'Backups', activity: 'Activity', system: 'System', settings: 'Settings', plugins: 'Plugins',
-  accounts: 'Accounts', account: 'My account',
+  accounts: 'Accounts', account: 'My account', plans: 'Plans',
 };
 
 function PluginRoute() {
@@ -183,6 +184,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
               <Route path="/settings" element={<Settings me={me} />} />
               <Route path="/plugins" element={<Plugins />} />
               <Route path="/accounts" element={<Accounts />} />
+              <Route path="/plans" element={<Plans />} />
               <Route path="/accounts/:id" element={<AccountPage />} />
             </>}
             <Route path="/p/:id" element={<PluginRoute />} />

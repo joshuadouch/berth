@@ -38,8 +38,13 @@ export interface Event { id: number; time: string; level: string; kind: string; 
 export interface Service { name: string; label: string; active: string }
 export interface Disk { path: string; total: number; free: number }
 export interface User { id: string; username: string; email: string; totp_enabled: boolean; role: 'admin' | 'customer'; account_id: string }
-export interface Account { id: string; name: string; email: string; notes: string; suspended: boolean; created_at: string }
-export interface AccountView extends Account { users: User[]; sites: string[] }
+export interface Account { id: string; name: string; email: string; notes: string; suspended: boolean; plan_id: string; created_at: string }
+export interface Plan {
+  id: string; name: string; max_sites: number; disk_mb: number; dns_zones: number; max_domains: number; memory_mb: number; workers: number;
+  upload_mb: number; db_connections: number; allow_shell: boolean; no_sftp: boolean;
+}
+export interface PlanUsage { plan: Plan | null; disk_used: number; sites: number }
+export interface AccountView extends Account { users: User[]; sites: string[]; usage: PlanUsage }
 
 export interface HalyardSettings { url: string; token?: string; pool_id: string; vip_id: string; exposure: string; insecure: boolean; auto_cert: boolean; no_dns: boolean }
 export interface S3Settings { enabled: boolean; endpoint: string; region: string; bucket: string; prefix: string; access_key: string; secret_key?: string; path_style: boolean; keep: number; local_keep: number }

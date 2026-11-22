@@ -102,6 +102,7 @@ type accountView struct {
 	model.Account
 	Users []model.User `json:"users"`
 	Sites []string     `json:"sites"`
+	Usage planUsage    `json:"usage"`
 }
 
 func (s *Server) accountView(ctx context.Context, a model.Account, sites []model.Site) (accountView, error) {
@@ -109,7 +110,7 @@ func (s *Server) accountView(ctx context.Context, a model.Account, sites []model
 	if err != nil {
 		return accountView{}, err
 	}
-	v := accountView{Account: a, Users: users, Sites: []string{}}
+	v := accountView{Account: a, Users: users, Sites: []string{}, Usage: s.planUsage(ctx, a.ID)}
 	for _, site := range sites {
 		if site.AccountID == a.ID {
 			v.Sites = append(v.Sites, site.Name)
@@ -198,6 +199,12 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	if a.PlanID != "" {
+		if _, err := s.Store.Plan(r.Context(), a.PlanID); err != nil {
+			writeErr(w, 400, "no such plan")
+			return
+		}
+	}
 	if req.User.Email == "" {
 		req.User.Email = a.Email
 	}
@@ -241,10 +248,16 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	next := cur
-	next.Name, next.Email, next.Notes, next.Suspended = req.Name, req.Email, req.Notes, req.Suspended
+	next.Name, next.Email, next.Notes, next.Suspended, next.PlanID = req.Name, req.Email, req.Notes, req.Suspended, req.PlanID
 	if err := next.Normalize(); err != nil {
 		writeErr(w, 400, err.Error())
 		return
+	}
+	if next.PlanID != "" {
+		if _, err := s.Store.Plan(r.Context(), next.PlanID); err != nil {
+			writeErr(w, 400, "no such plan")
+			return
+		}
 	}
 	if err := s.Store.SaveAccount(r.Context(), next); err != nil {
 		writeErr(w, 500, err.Error())
@@ -262,6 +275,12 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 		msg = " unsuspended account "
 	}
 	s.Store.AddEvent(r.Context(), "info", "account", "", currentUser(r).Username+msg+next.Name)
+	if next.PlanID != cur.PlanID {
+		if err := s.Engine.ApplyPlanLimits(r.Context(), next.ID); err != nil {
+			writeErr(w, 500, "saved, but applying the plan failed: "+err.Error())
+			return
+		}
+	}
 	writeJSON(w, 200, next)
 }
 

@@ -139,7 +139,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	a, _ := s.Store.Account(r.Context(), u.AccountID)
-	writeJSON(w, 200, map[string]any{"user": u, "account": a, "name": s.Cfg.Name, "version": s.Version, "plugins": s.myPlugins(r)})
+	writeJSON(w, 200, map[string]any{"user": u, "account": a, "name": s.Cfg.Name, "version": s.Version, "plugins": s.myPlugins(r), "usage": s.planUsage(r.Context(), u.AccountID)})
 }
 
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {

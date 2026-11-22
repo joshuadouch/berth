@@ -181,6 +181,9 @@ type Site struct {
 	// TLS is the site's own certificate, used when Berth ends HTTPS itself.
 	TLS       SiteTLS   `json:"tls"`
 	CreatedAt time.Time `json:"created_at"`
+	// NoShell is set while rendering for sites whose plan blocks PHP's shell
+	// functions; it is never stored.
+	NoShell bool `json:"-"`
 }
 
 // PHPSettings are per-site PHP options beyond memory and uploads.
@@ -641,8 +644,60 @@ type Account struct {
 	Email string `json:"email"`
 	Notes string `json:"notes"`
 	// Suspended accounts cannot sign in.
-	Suspended bool      `json:"suspended"`
+	Suspended bool `json:"suspended"`
+	// PlanID is the hosting plan that limits the account ("" = no limits).
+	PlanID    string    `json:"plan_id"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// Plan is a hosting package: what an account may use. Zero means no limit.
+type Plan struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Per account.
+	MaxSites int `json:"max_sites"`
+	DiskMB   int `json:"disk_mb"` // files and databases of every site
+	DNSZones int `json:"dns_zones"`
+	// Per site.
+	MaxDomains    int `json:"max_domains"` // main domain plus other domains
+	MemoryMB      int `json:"memory_mb"`   // PHP memory_limit
+	Workers       int `json:"workers"`     // PHP-FPM max_children
+	UploadMB      int `json:"upload_mb"`
+	DBConnections int `json:"db_connections"` // MariaDB connections per site
+	// AllowShell leaves exec(), system() and friends on in PHP.
+	AllowShell bool `json:"allow_shell"`
+	NoSFTP     bool `json:"no_sftp"`
+}
+
+// ShellFunctions are switched off in PHP for plans without AllowShell.
+const ShellFunctions = "exec,passthru,shell_exec,system,proc_open,popen,proc_nice,pcntl_exec,pcntl_fork,dl,posix_kill,posix_setuid,posix_setgid"
+
+// Normalize tidies and validates a plan.
+func (p *Plan) Normalize() error {
+	p.Name = strings.TrimSpace(p.Name)
+	if p.Name == "" || len(p.Name) > 60 {
+		return errors.New("plan name must be 1-60 characters")
+	}
+	for _, n := range []int{p.MaxSites, p.DiskMB, p.DNSZones, p.MaxDomains, p.MemoryMB, p.Workers, p.UploadMB, p.DBConnections} {
+		if n < 0 {
+			return errors.New("limits cannot be negative")
+		}
+	}
+	if p.MemoryMB != 0 && p.MemoryMB < 32 {
+		return errors.New("PHP memory must be at least 32 MB")
+	}
+	if p.Workers > 200 || p.UploadMB > 10240 {
+		return errors.New("a limit is out of range")
+	}
+	return nil
+}
+
+// Limit returns n capped by a plan limit (0 = none).
+func Limit(n, limit int) int {
+	if limit > 0 && (n == 0 || n > limit) {
+		return limit
+	}
+	return n
 }
 
 // Normalize tidies and validates an account.

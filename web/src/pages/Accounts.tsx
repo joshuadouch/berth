@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { AccountView, ago, del, get, post, put, SiteRow, User } from '../api';
+import { AccountView, ago, del, get, Plan, post, put, SiteRow, User } from '../api';
+import { UsageCard } from './Plans';
 import { useMe } from '../me';
 import { Badge, ErrorBox, Field, Icon, Loading, Modal, SiteAvatar, StatusBadge, Toggle, useLoad, useToast } from '../ui';
 
@@ -23,12 +24,13 @@ export default function Accounts() {
         {data && data.length > 6 && <div className="cb" style={{ borderBottom: '1px solid var(--line)' }}><input className="input" placeholder="Filter accounts" value={q} onChange={(e) => setQ(e.target.value)} /></div>}
         {!data ? <Loading /> : (
           <table>
-            <thead><tr><th>Account</th><th>Logins</th><th>Sites</th><th>Created</th><th>Status</th></tr></thead>
+            <thead><tr><th>Account</th><th>Logins</th><th>Sites</th><th>Plan</th><th>Created</th><th>Status</th></tr></thead>
             <tbody>{rows.map((a) => (
               <tr key={a.id} className="click" onClick={() => nav('/accounts/' + a.id)}>
                 <td><div className="row" style={{ gap: 12, alignItems: 'center' }}><SiteAvatar name={a.name} /><div><b>{a.name}</b><div className="dim" style={{ fontSize: 12 }}>{a.email || '—'}</div></div></div></td>
                 <td className="muted">{a.users.map((u) => u.username).join(', ') || '—'}</td>
                 <td>{a.sites.length}</td>
+                <td className="muted">{a.usage?.plan?.name ?? '—'}</td>
                 <td className="muted">{ago(a.created_at)}</td>
                 <td>{a.suspended ? <Badge kind="b">Suspended</Badge> : a.users.some((u) => u.role === 'admin') ? <Badge kind="v">Admin</Badge> : <Badge kind="g">Active</Badge>}</td>
               </tr>
@@ -42,7 +44,8 @@ export default function Accounts() {
 }
 
 function NewAccount({ onClose, onDone }: { onClose: () => void; onDone: (id: string) => void }) {
-  const [f, setF] = useState({ name: '', email: '', notes: '', username: '', password: '' });
+  const [f, setF] = useState({ name: '', email: '', notes: '', username: '', password: '', plan_id: '' });
+  const plans = useLoad(() => get<Plan[]>('/plans'));
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
@@ -50,7 +53,7 @@ function NewAccount({ onClose, onDone }: { onClose: () => void; onDone: (id: str
   const save = async () => {
     setErr(null); setBusy(true);
     try {
-      const a = await post<AccountView>('/accounts', { name: f.name, email: f.email, notes: f.notes, user: { username: f.username, email: f.email, password: f.password } });
+      const a = await post<AccountView>('/accounts', { name: f.name, email: f.email, notes: f.notes, plan_id: f.plan_id, user: { username: f.username, email: f.email, password: f.password } });
       toast('Account created');
       onDone(a.id);
     } catch (e) { setErr(e); } finally { setBusy(false); }
@@ -64,6 +67,8 @@ function NewAccount({ onClose, onDone }: { onClose: () => void; onDone: (id: str
         <Field label="Username"><input className="input mono" autoComplete="off" value={f.username} onChange={(e) => set({ username: e.target.value })} /></Field>
         <Field label="Password" help="At least 10 characters. Give it to the customer; they can change it."><input className="input mono" autoComplete="new-password" value={f.password} onChange={(e) => set({ password: e.target.value })} /></Field>
       </div>
+      {(plans.data?.length ?? 0) > 0 && <Field label="Plan"><select className="input" value={f.plan_id} onChange={(e) => set({ plan_id: e.target.value })}>
+        <option value="">No plan (no limits)</option>{plans.data!.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>}
       <Field label="Notes (only admins see these)"><textarea className="input" rows={2} value={f.notes} onChange={(e) => set({ notes: e.target.value })} /></Field>
       <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn" onClick={onClose}>Cancel</button><button className="btn p" disabled={busy} onClick={save}>Create account</button></div>
     </Modal>
@@ -76,13 +81,14 @@ export function AccountPage() {
   const { me } = useMe();
   const { data, error, reload } = useLoad(() => get<AccountView>('/accounts/' + id), [id]);
   const sites = useLoad(() => get<SiteRow[]>('/sites?account=' + encodeURIComponent(id)), [id]);
-  const [f, setF] = useState<{ name: string; email: string; notes: string; suspended: boolean } | null>(null);
+  const plans = useLoad(() => get<Plan[]>('/plans'));
+  const [f, setF] = useState<{ name: string; email: string; notes: string; suspended: boolean; plan_id: string } | null>(null);
   const [err, setErr] = useState<unknown>(null);
   const [userModal, setUserModal] = useState<User | 'new' | null>(null);
   const toast = useToast();
   const nav = useNavigate();
   if (!data) return error ? <ErrorBox error={error} /> : <Loading />;
-  const form = f ?? { name: data.name, email: data.email, notes: data.notes, suspended: data.suspended };
+  const form = f ?? { name: data.name, email: data.email, notes: data.notes, suspended: data.suspended, plan_id: data.plan_id ?? '' };
   const set = (p: Partial<typeof form>) => setF({ ...form, ...p });
   const own = data.id === me?.user.account_id;
   const go = (fn: () => Promise<unknown>, ok: string) => async () => {
@@ -102,6 +108,10 @@ export function AccountPage() {
           <div className="card"><div className="ch"><h3>Details</h3></div><div className="cb">
             <Field label="Name"><input className="input" value={form.name} onChange={(e) => set({ name: e.target.value })} /></Field>
             <Field label="Contact email"><input className="input" type="email" value={form.email} onChange={(e) => set({ email: e.target.value })} /></Field>
+            <Field label="Plan" help="Limits for the account's sites. Changing it applies at once.">
+              <select className="input" value={form.plan_id} onChange={(e) => set({ plan_id: e.target.value })}>
+                <option value="">No plan (no limits)</option>
+                {plans.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
             <Field label="Notes (only admins see these)"><textarea className="input" rows={3} value={form.notes} onChange={(e) => set({ notes: e.target.value })} /></Field>
             {!own && <Toggle on={form.suspended} onChange={(v) => set({ suspended: v })} label="Suspended" help="Suspended accounts are signed out and cannot sign in. Their sites keep running." />}
           </div></div>
@@ -119,6 +129,8 @@ export function AccountPage() {
             <button className="btn danger" onClick={() => window.confirm(`Delete ${data.name}?`) && go(() => del('/accounts/' + id).then(() => nav('/accounts')), 'Account deleted')()}>Delete account</button>
           </div></div>}
         </div>
+        <div className="stack">
+        <UsageCard u={data.usage} />
         <div className="card"><div className="ch"><h3>Sites</h3><Link to={'/sites/new?account=' + id} className="btn s"><Icon name="plus" size={13} />New site</Link></div>
           {!sites.data ? <Loading /> : sites.data.length === 0 ? <div className="empty">No sites yet.</div> :
             <table><tbody>{sites.data.map((s) => (
@@ -127,6 +139,7 @@ export function AccountPage() {
                 <td style={{ textAlign: 'right' }}><StatusBadge status={s.status} enabled={s.enabled} /></td>
               </tr>
             ))}</tbody></table>}
+        </div>
         </div>
       </div>
       {userModal && <UserModal accountID={id} user={userModal === 'new' ? null : userModal} self={userModal !== 'new' && userModal.id === me?.user.id}

@@ -173,6 +173,11 @@ func (h *Host) Site(ctx context.Context, name string) (model.Site, error) {
 	return h.Store.Site(ctx, name)
 }
 
+// Plan returns the hosting plan of an account, and false when it has none.
+func (h *Host) Plan(ctx context.Context, account string) (model.Plan, bool) {
+	return h.Store.AccountPlan(ctx, account)
+}
+
 // SiteEvent records an entry in a site's activity log.
 func (h *Host) SiteEvent(ctx context.Context, level, site, msg string) {
 	h.Store.AddEvent(ctx, level, "plugin."+h.ID, site, msg)

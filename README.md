@@ -14,6 +14,14 @@ or Cloudflare. Admins see every account and can move a site between them.
 Panels from before accounts existed are moved to one account owned by the
 existing admin on the first start.
 
+**Plans** (Platform → Plans) are hosting packages. An account on a plan is held
+to its limits: number of sites, disk space for files and databases (over it,
+no new sites or uploads), DNS domains, domains per site, and per-site PHP
+memory, workers, upload size and MariaDB connections. Plans block PHP's shell
+functions (`exec`, `system`, `proc_open` and the like) unless they allow them,
+and can turn SFTP off. Changing a plan, or an account's plan, applies to its
+existing sites at once. Accounts without a plan have no limits.
+
 - **One-click WordPress.** Enter a domain and Berth creates the site, its
   database, installs WordPress, sets pretty permalinks and shows the admin
   password once.
