@@ -280,6 +280,70 @@ Setup:
   access; the Test button tells you.
 - Cloudflare (optional): a token with **Zone → DNS → Edit** on the mail domains.
 
+### DNS hosting
+
+Hosts customers' domains on your own [PowerDNS](https://www.powerdns.com)
+nameservers. Switch it on for the accounts that may use it; they get a **DNS**
+page to add their domains and edit records (A, AAAA, CNAME, MX, TXT, SRV, CAA,
+and NS for subdomains). The SOA and the zone's own NS records are Berth's. A
+customer can only add a domain nobody else hosts here, and never a public
+suffix such as `co.uk`.
+
+When a site's domain sits in one of its account's zones, Berth points it (and
+its other domains) at this server with A and AAAA records, unless the name
+already has a record. Domains a site drops lose the records Berth would have
+made. Each site's Overview has a DNS card that checks where its domains point
+and says what to change: the nameservers at the registrar, or A/AAAA records
+for customers who keep their DNS elsewhere.
+
+#### Setting up the nameservers
+
+You need two nameservers on different networks, each reachable from the
+internet on port 53 (TCP and UDP). A common layout is the primary in an LXC
+next to Berth with port 53 forwarded to it (`ns1`), and a secondary on a small
+VPS elsewhere (`ns2`).
+
+1. **Primary.** On a Proxmox node:
+
+   ```bash
+   bash -c "$(curl -fsSL https://raw.githubusercontent.com/joshuadouch/berth/main/ct/pdns.sh)"
+   ```
+
+   or on any Debian 12/13 machine:
+
+   ```bash
+   curl -fsSLO https://raw.githubusercontent.com/joshuadouch/berth/main/install/pdns-install.sh
+   PDNS_ROLE=primary PDNS_NS_NAME=ns1.example.net PDNS_API_ALLOW=<berth-ip> \
+     PDNS_SECONDARY_IPS=<ns2-public-ip> bash pdns-install.sh
+   ```
+
+   It prints the API address and key for Berth.
+2. **Secondary.** On the other machine:
+
+   ```bash
+   PDNS_ROLE=secondary PDNS_NS_NAME=ns2.example.net PDNS_PRIMARY_IP=<ns1-public-ip> bash pdns-install.sh
+   ```
+
+   It takes new zones from the primary's NOTIFY by itself, copies every change,
+   and every 15 minutes drops zones the primary no longer serves. (Give Berth
+   the secondary's API too, under **Secondary nameserver**, and Berth adds and
+   removes zones there directly instead; then **Sync secondary** on the DNS page
+   repairs any drift.)
+3. **Names and glue.** In the zone of the domain your nameservers are named
+   under (`example.net` above), add `ns1.example.net` and `ns2.example.net` as A
+   (and AAAA) records with the public addresses. At that domain's registrar,
+   register them as **glue records / host names** with the same addresses.
+4. **Berth.** Plugins → DNS hosting: the primary's API address and key, the
+   nameserver names (`ns1.example.net, ns2.example.net`), a hostmaster email,
+   and this server's public IPv4/IPv6 for site records. **Test** checks both
+   servers. Then choose the accounts it is on for.
+5. **Firewall.** Port 53 TCP and UDP open to everyone on both servers; the API
+   port (8081) only to Berth. The API speaks plain HTTP, so keep it on your LAN
+   or a VPN.
+
+Customers then set their domain's nameservers to `ns1.example.net` and
+`ns2.example.net` at their registrar.
+
 ## Updating
 
 Every change merged to `main` publishes a new release automatically

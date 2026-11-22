@@ -38,6 +38,7 @@ func testServer(t *testing.T) (*httptest.Server, *store.Store) {
 	eng := engine.New(cfg, st, log)
 	reg := plugin.NewRegistry(st, log, plugins.All()...)
 	eng.Plugins = reg
+	eng.Hooks = reg
 	srv := &Server{Cfg: cfg, Store: st, Engine: eng, Log: log, Version: "test", Plugins: reg}
 	ts := httptest.NewTLSServer(srv.Handler())
 	t.Cleanup(ts.Close)

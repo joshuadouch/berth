@@ -8,6 +8,7 @@ require (
 	github.com/johannesboyne/gofakes3 v1.2.0
 	github.com/minio/minio-go/v7 v7.4.1
 	golang.org/x/crypto v0.59.0
+	golang.org/x/net v0.62.0
 	golang.org/x/term v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.62.0
@@ -33,7 +34,6 @@ require (
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.shabbyrobe.org/gocovmerge v0.0.0-20230507111327-fa4f82cfbf4d // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/tools v0.52.0 // indirect

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AccountView, ago, Backup, bytes, del, exposureLabel, fmtDate, get, HalyardInfo, Job, post, put, Serve, serveFields, serveOf, Site, SiteDetail, siteURL, typeLabel, vipLabel, WPInfo } from '../api';
 import { useMe } from '../me';
 import FilesTab from './Files';
+import { SiteDNSCard } from './DNS';
 import DatabaseTab from './Database';
 import { AnalyticsTab, AutoUpdateCard, SearchReplaceCard, VulnCard } from './Insights';
 import { BackupBrowser, RestoreModal, Where } from './BackupTools';
@@ -95,6 +96,7 @@ function Overview({ d, reload, startJob }: { d: SiteDetail; reload: () => void; 
           <div>Last backup</div><div>{d.backups[0] ? ago(d.backups[0].time) : 'none'}{!s.backups && <span className="dim"> (nightly off)</span>}</div>
           {s.notes && <><div>Notes</div><div style={{ whiteSpace: 'pre-wrap' }}>{s.notes}</div></>}
         </div></div>
+        {d.dns && <SiteDNSCard site={s.id} />}
         {localTLS(s) && <CertCard s={s} startJob={startJob} />}
         <div className="card"><div className="ch"><h3>Files</h3>
           <button className="btn s" onClick={() => act(post('/sites/' + s.id + '/fix-permissions'), 'Ownership fixed')}>Fix permissions</button></div>

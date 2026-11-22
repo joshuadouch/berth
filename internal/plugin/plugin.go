@@ -89,6 +89,13 @@ type Validator interface {
 	Validate(c Config) error
 }
 
+// SiteWatcher is implemented by plugins that follow site changes. old is nil
+// for a new site, cur is nil for a deleted one. It is called while the plugin
+// is enabled; per-account plugins check ActiveFor themselves.
+type SiteWatcher interface {
+	SiteChanged(ctx context.Context, old, cur *model.Site, logf func(string, ...any))
+}
+
 // Config holds a plugin's settings.
 type Config map[string]any
 
@@ -465,6 +472,16 @@ func (r *Registry) ActiveFor(ctx context.Context, id, account string) bool {
 		}
 	}
 	return false
+}
+
+// SiteChanged passes a site change to every enabled plugin that watches sites.
+func (r *Registry) SiteChanged(ctx context.Context, old, cur *model.Site, logf func(string, ...any)) {
+	for _, p := range r.plugins {
+		w, ok := p.(SiteWatcher)
+		if ok && r.Enabled(ctx, p.Info().ID) {
+			w.SiteChanged(ctx, old, cur, logf)
+		}
+	}
 }
 
 // Info returns a plugin's description.

@@ -13,6 +13,7 @@ import (
 	"github.com/joshuadouch/berth/internal/engine"
 	"github.com/joshuadouch/berth/internal/model"
 	"github.com/joshuadouch/berth/internal/plugins/cloudflare"
+	"github.com/joshuadouch/berth/internal/plugins/dns"
 )
 
 type siteRow struct {
@@ -82,6 +83,7 @@ func (s *Server) getSite(w http.ResponseWriter, r *http.Request) {
 		"sftp_available": s.Cfg.SFTP.Enabled, "uptime": uptime,
 		"cloudflare": admin && s.Plugins.ActiveFor(r.Context(), cloudflare.ID, site.AccountID),
 		"halyard":    admin && s.Engine.HalyardFor(r.Context(), site.AccountID),
+		"dns":        s.Plugins.ActiveFor(r.Context(), dns.ID, site.AccountID) && !site.Halyard.Enabled,
 		"vulns":      s.Engine.VulnCounts(r.Context(), []model.Site{site})[site.Name],
 	})
 }

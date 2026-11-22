@@ -184,9 +184,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
               <Route path="/plugins" element={<Plugins />} />
               <Route path="/accounts" element={<Accounts />} />
               <Route path="/accounts/:id" element={<AccountPage />} />
-              <Route path="/p/:id" element={<PluginRoute />} />
-              <Route path="/p/:id/:sub" element={<PluginRoute />} />
             </>}
+            <Route path="/p/:id" element={<PluginRoute />} />
+            <Route path="/p/:id/:sub" element={<PluginRoute />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
           </PageBoundary>

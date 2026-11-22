@@ -61,7 +61,7 @@ export interface Settings {
 
 export interface SiteDetail {
   site: Site; usage: Usage; backups: Backup[]; jobs: Job[]; events: Event[]; dir: string; user: string; socket: string; sftp_available: boolean;
-  cloudflare: boolean; halyard: boolean; uptime: UptimeState | null; vulns: number;
+  cloudflare: boolean; halyard: boolean; dns: boolean; uptime: UptimeState | null; vulns: number;
 }
 export interface WPInfo {
   version: string; core_update: string; siteurl: string; error?: string; plugin_updates: number; theme_updates: number;

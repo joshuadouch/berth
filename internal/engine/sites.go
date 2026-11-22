@@ -158,6 +158,7 @@ func (e *Engine) CreateSite(ctx context.Context, req CreateRequest, author strin
 		_ = e.Store.SaveSite(ctx, cur)
 		if err == nil {
 			e.syncHalyard(ctx, &cur, logf)
+			e.siteChanged(ctx, nil, &cur, logf)
 			e.firstCert(ctx, cur, logf)
 		}
 		return err
@@ -241,6 +242,7 @@ func (e *Engine) RetryProvision(ctx context.Context, name string) (int64, string
 		_ = e.Store.SaveSite(ctx, cur)
 		if err == nil {
 			e.syncHalyard(ctx, &cur, logf)
+			e.siteChanged(ctx, nil, &cur, logf)
 			e.firstCert(ctx, cur, logf)
 		}
 		return err
@@ -291,6 +293,9 @@ func (e *Engine) UpdateSite(ctx context.Context, in model.Site, replaceURLs bool
 		return next, 0, err
 	}
 	e.Store.AddEvent(ctx, "info", "site", next.Name, author+" updated "+next.Domain)
+	if next.Status == model.StatusActive && strings.Join(cur.Hostnames(), ",") != strings.Join(next.Hostnames(), ",") {
+		e.siteChanged(ctx, &cur, &next, nil)
+	}
 	if next.LocalTLS() && next.Status == model.StatusActive && (next.TLS.Status != model.TLSActive || !next.TLSCovers()) {
 		next.TLS.NextTry = time.Time{}
 		e.firstCert(ctx, next, func(string, ...any) {})
@@ -345,6 +350,9 @@ func (e *Engine) DeleteSite(ctx context.Context, name string, finalBackup bool, 
 			}
 		}
 		_ = e.unlinkHalyard(ctx, &s, logf)
+		if prev == model.StatusActive || prev == model.StatusError {
+			e.siteChanged(ctx, &s, nil, logf)
+		}
 		logf("Removing nginx and PHP config")
 		if err := e.Apply(ctx); err != nil {
 			s.Status = prev
@@ -436,6 +444,13 @@ func (e *Engine) MoveSite(ctx context.Context, id, accountID string) (model.Site
 	if err != nil {
 		return s, err
 	}
+	old := s
 	s.AccountID = accountID
-	return s, e.Store.SaveSite(ctx, s)
+	if err := e.Store.SaveSite(ctx, s); err != nil {
+		return s, err
+	}
+	if s.Status == model.StatusActive && old.AccountID != accountID {
+		e.siteChanged(ctx, &old, &s, nil)
+	}
+	return s, nil
 }

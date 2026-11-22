@@ -7,6 +7,7 @@ import (
 
 	"github.com/joshuadouch/berth/internal/plugin"
 	"github.com/joshuadouch/berth/internal/plugins/cloudflare"
+	"github.com/joshuadouch/berth/internal/plugins/dns"
 	"github.com/joshuadouch/berth/internal/plugins/halyard"
 	"github.com/joshuadouch/berth/internal/plugins/mailcow"
 	"github.com/joshuadouch/berth/internal/store"
@@ -14,7 +15,7 @@ import (
 
 // All returns a fresh instance of every plugin.
 func All() []plugin.Plugin {
-	return []plugin.Plugin{mailcow.New(), cloudflare.New(), halyard.New()}
+	return []plugin.Plugin{mailcow.New(), cloudflare.New(), halyard.New(), dns.New()}
 }
 
 // Migrate turns settings from before Halyard and Cloudflare were plugins into
