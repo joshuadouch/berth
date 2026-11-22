@@ -29,6 +29,12 @@ type PluginSwitch interface {
 	ActiveFor(ctx context.Context, id, account string) bool
 }
 
+// SiteHooks lets plugins follow sites as they are created, changed and
+// deleted. old is nil for a new site and cur is nil for a deleted one.
+type SiteHooks interface {
+	SiteChanged(ctx context.Context, old, cur *model.Site, logf func(string, ...any))
+}
+
 // Engine owns every change to the machine.
 type Engine struct {
 	Cfg     *config.Config
@@ -47,6 +53,8 @@ type Engine struct {
 	// Plugins says which plugins are on for an account. Nil means every
 	// plugin is on (tests).
 	Plugins PluginSwitch
+	// Hooks hears about site changes (nil: nobody).
+	Hooks SiteHooks
 	// ACMEDirectory, ACMEHTTP and SkipACMEPreflight point certificate
 	// requests at a test CA.
 	ACMEDirectory     string
@@ -325,4 +333,15 @@ func Password(n int) string {
 		b[i] = pwChars[x.Int64()]
 	}
 	return string(b)
+}
+
+// siteChanged tells plugins about a site change. Failures are theirs to log.
+func (e *Engine) siteChanged(ctx context.Context, old, cur *model.Site, logf Logf) {
+	if e.Hooks == nil {
+		return
+	}
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+	e.Hooks.SiteChanged(ctx, old, cur, logf)
 }
