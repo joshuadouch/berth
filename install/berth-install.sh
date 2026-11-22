@@ -151,6 +151,7 @@ install -d -m 0751 /srv/sites
 install -d -m 0750 /var/log/berth
 mkdir -p /var/backups/berth && chmod 0700 /var/backups/berth 2>/dev/null || true
 install -d -m 0755 /etc/nginx/berth /etc/nginx/berth/sites
+install -d -m 0755 /var/www/berth-acme
 
 if [[ ! -f /etc/berth/berth.yaml ]]; then
   IPV6=true

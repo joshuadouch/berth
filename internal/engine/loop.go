@@ -80,7 +80,8 @@ func (e *Engine) Loop(ctx context.Context) {
 	lastUsage := time.Now()
 	lastTraffic := time.Time{}
 	lastHourly := time.Time{}
-	var uptimeBusy atomicFlag
+	var uptimeBusy, certBusy atomicFlag
+	lastCerts := time.Now().Add(-9 * time.Minute)
 	// PHP updates: check soon after start, then once a day.
 	lastPHP := time.Now().Add(-23 * time.Hour)
 	for {
@@ -96,6 +97,10 @@ func (e *Engine) Loop(ctx context.Context) {
 				go func() { defer uptimeBusy.done(); e.runUptime(ctx) }()
 			}
 			e.runAutoUpdates(ctx, now)
+			if now.Sub(lastCerts) >= 10*time.Minute && certBusy.try() {
+				lastCerts = now
+				go func() { defer certBusy.done(); e.renewCerts(ctx) }()
+			}
 			if now.Sub(lastTraffic) >= 5*time.Minute {
 				lastTraffic = now
 				go e.ingestAllTraffic(ctx)

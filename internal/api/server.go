@@ -84,6 +84,7 @@ func (s *Server) Handler() http.Handler {
 	as("PUT /api/sites/{id}", s.updateSite)
 	as("DELETE /api/sites/{id}", s.deleteSite)
 	as("POST /api/sites/{id}/retry", s.retrySite)
+	as("POST /api/sites/{id}/tls", s.requestCert)
 	as("POST /api/sites/{id}/fix-permissions", s.fixPermissions)
 	as("GET /api/sites/{id}/nginx", s.siteNginx)
 	ad("PUT /api/sites/{id}/nginx", s.setSiteNginx)

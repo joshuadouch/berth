@@ -98,6 +98,7 @@ func (s *Server) createSite(w http.ResponseWriter, r *http.Request) {
 		// Customers' sites are theirs, and server-level options stay off.
 		req.AccountID = u.AccountID
 		req.Halyard = model.HalyardLink{}
+		req.TLSMode = model.TLSModeLocal // customers have no proxy in front
 		req.NginxCustom = ""
 		req.MemoryMB, req.MaxChildren = 0, 0
 		req.PHP.Custom = ""
@@ -138,6 +139,7 @@ func (s *Server) updateSite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		req.MemoryMB, req.MaxChildren, req.PHP.Custom = cur.MemoryMB, cur.MaxChildren, cur.PHP.Custom
+		req.TLSMode = model.TLSModeLocal
 	}
 	site, job, err := s.Engine.UpdateSite(r.Context(), req.Site, req.ReplaceURLs, currentUser(r).Username)
 	if err != nil {
@@ -398,4 +400,22 @@ func (s *Server) wpLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Store.AddEvent(r.Context(), "info", "site", site.Name, currentUser(r).Username+" opened WP admin as "+login)
 	writeJSON(w, 200, map[string]any{"url": link, "user": login})
+}
+
+// requestCert asks Let's Encrypt for the site's certificate now.
+func (s *Server) requestCert(w http.ResponseWriter, r *http.Request) {
+	site, ok := s.site(w, r)
+	if !ok {
+		return
+	}
+	if site.Status != model.StatusActive {
+		writeErr(w, 400, "the site is not ready yet")
+		return
+	}
+	id, err := s.Engine.RequestCert(r.Context(), site.Name)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"job_id": id})
 }

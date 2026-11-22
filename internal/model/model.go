@@ -80,6 +80,54 @@ type HalyardLink struct {
 	Error string `json:"error"`
 }
 
+// Certificate states.
+const (
+	TLSNone    = ""
+	TLSPending = "pending"
+	TLSActive  = "active"
+	TLSError   = "error"
+)
+
+// SiteTLS is a site's Let's Encrypt certificate.
+type SiteTLS struct {
+	Status  string    `json:"status"`
+	Error   string    `json:"error,omitempty"`
+	Domains []string  `json:"domains,omitempty"` // names the certificate covers
+	Issued  time.Time `json:"issued,omitempty"`
+	Expires time.Time `json:"expires,omitempty"`
+	// Fails counts failed attempts in a row; NextTry backs off after them.
+	Fails   int       `json:"fails,omitempty"`
+	NextTry time.Time `json:"next_try,omitempty"`
+}
+
+// Who ends HTTPS for a site.
+const (
+	TLSModeProxy = ""      // a load balancer or Cloudflare in front (Halyard)
+	TLSModeLocal = "local" // Berth, with a Let's Encrypt certificate
+)
+
+// LocalTLS reports whether Berth itself ends HTTPS for the site. Sites
+// published on Halyard always leave TLS to Halyard.
+func (s Site) LocalTLS() bool { return s.HTTPS && s.TLSMode == TLSModeLocal && !s.Halyard.Enabled }
+
+// ServesTLS reports whether nginx serves the site on port 443 with its
+// certificate.
+func (s Site) ServesTLS() bool { return s.LocalTLS() && s.TLS.Status == TLSActive }
+
+// TLSCovers reports whether the certificate covers every hostname.
+func (s Site) TLSCovers() bool {
+	have := map[string]bool{}
+	for _, d := range s.TLS.Domains {
+		have[d] = true
+	}
+	for _, h := range s.Hostnames() {
+		if !have[h] {
+			return false
+		}
+	}
+	return len(s.TLS.Domains) > 0
+}
+
 // SiteImport names the staged uploads a new site is built from.
 type SiteImport struct {
 	Files     string `json:"files"` // upload id of a .zip/.tar(.gz)
@@ -105,7 +153,9 @@ type Site struct {
 	// FrontController sends requests for missing files to /index.php.
 	FrontController bool `json:"front_controller"`
 	// HTTPS means visitors reach the site over HTTPS (TLS ends at Halyard).
-	HTTPS       bool        `json:"https"`
+	HTTPS bool `json:"https"`
+	// TLSMode says who ends HTTPS: a proxy in front ("") or Berth ("local").
+	TLSMode     string      `json:"tls_mode"`
 	Enabled     bool        `json:"enabled"`
 	UploadMB    int         `json:"upload_mb"`
 	MemoryMB    int         `json:"memory_mb"`
@@ -127,7 +177,9 @@ type Site struct {
 	// AutoUpdate updates WordPress on a schedule.
 	AutoUpdate AutoUpdate `json:"auto_update"`
 	// NoMonitor turns off uptime checks for the site.
-	NoMonitor bool      `json:"no_monitor"`
+	NoMonitor bool `json:"no_monitor"`
+	// TLS is the site's own certificate, used when Berth ends HTTPS itself.
+	TLS       SiteTLS   `json:"tls"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -328,6 +380,9 @@ func (s *Site) Normalize() error {
 		return fmt.Errorf("name must be 2-24 lowercase letters or digits, starting with a letter")
 	}
 	s.ID = s.Name
+	if s.TLSMode != TLSModeProxy && s.TLSMode != TLSModeLocal {
+		return fmt.Errorf("unknown TLS mode %q", s.TLSMode)
+	}
 	switch s.Type {
 	case TypeWordPress, TypePHPDB, TypePHP:
 	default:
@@ -430,6 +485,8 @@ type Settings struct {
 
 	// CloudflareToken may purge Cloudflare's cache (Zone > Cache Purge).
 	CloudflareToken string `json:"cloudflare_token,omitempty"`
+	// ACME is Let's Encrypt for sites Berth serves over HTTPS itself.
+	ACME ACMESettings `json:"acme"`
 	// NoUptime turns off uptime checks for every site.
 	NoUptime bool `json:"no_uptime"`
 	// NoVulnScan turns off the daily WordPress vulnerability check.
@@ -449,6 +506,17 @@ type S3Settings struct {
 	Keep      int    `json:"keep"`       // backups kept per site off-site
 	// LocalKeep overrides BackupKeep while S3 is on (0 = same as BackupKeep).
 	LocalKeep int `json:"local_keep"`
+}
+
+// ACMESettings configures Let's Encrypt.
+type ACMESettings struct {
+	// Email gets Let's Encrypt's expiry warnings ("" uses the first admin's).
+	Email string `json:"email"`
+	// Staging uses Let's Encrypt's staging server (untrusted certificates,
+	// generous rate limits) for testing.
+	Staging bool `json:"staging"`
+	// Off stops Berth from requesting certificates.
+	Off bool `json:"off"`
 }
 
 // HalyardSettings connects Berth to a Halyard load balancer.

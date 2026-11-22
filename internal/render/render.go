@@ -19,7 +19,15 @@ type Paths struct {
 	PoolDir    string // /etc/php/{v}/fpm/pool.d
 	SocketTmpl string // /run/php/berth-{site}.sock
 	IPv6       bool   // also listen on [::]:80
+	ACMEDir    string // /var/lib/berth/acme: HTTP-01 challenge files
+	CertDir    string // /var/lib/berth/certs: <site>/fullchain.pem and privkey.pem
 }
+
+// CertFile is a site's certificate chain.
+func (p Paths) CertFile(name string) string { return filepath.Join(p.CertDir, name, "fullchain.pem") }
+
+// KeyFile is a site's certificate key.
+func (p Paths) KeyFile(name string) string { return filepath.Join(p.CertDir, name, "privkey.pem") }
 
 // Output is the full set of managed files.
 type Output struct {
@@ -43,7 +51,11 @@ func (p Paths) PoolFile(version, name string) string {
 // Render renders every site. Sites must already be validated.
 func Render(p Paths, st model.Settings, sites []model.Site) (Output, error) {
 	out := Output{Files: map[string]string{}}
-	out.Files[filepath.Join(p.NginxConf, "http.conf")] = httpConf(p, st)
+	tls := false
+	for _, s := range sites {
+		tls = tls || s.ServesTLS()
+	}
+	out.Files[filepath.Join(p.NginxConf, "http.conf")] = httpConf(p, st, tls)
 	out.Files[filepath.Join(p.NginxConf, "fastcgi.conf")] = fastcgiConf
 	versions := map[string]bool{}
 	names := map[string]string{}
@@ -67,7 +79,7 @@ func Render(p Paths, st model.Settings, sites []model.Site) (Output, error) {
 
 const header = "# Managed by Berth. Changes made here are overwritten.\n"
 
-func httpConf(p Paths, st model.Settings) string {
+func httpConf(p Paths, st model.Settings, tls bool) string {
 	var b strings.Builder
 	w := func(f string, a ...any) { fmt.Fprintf(&b, f+"\n", a...) }
 	b.WriteString(header)
@@ -117,6 +129,24 @@ func httpConf(p Paths, st model.Settings) string {
 	w("        return 444;")
 	w("    }")
 	w("}")
+	if tls {
+		w("")
+		w("# HTTPS for sites with their own certificate. Unknown names are refused.")
+		w("ssl_protocols TLSv1.2 TLSv1.3;")
+		w("ssl_prefer_server_ciphers off;")
+		w("ssl_session_cache shared:berth:10m;")
+		w("ssl_session_timeout 1d;")
+		w("ssl_session_tickets off;")
+		w("server {")
+		w("    listen 443 ssl default_server;")
+		if p.IPv6 {
+			w("    listen [::]:443 ssl default_server;")
+		}
+		w("    server_name _;")
+		w("    access_log off;")
+		w("    ssl_reject_handshake on;")
+		w("}")
+	}
 	return b.String()
 }
 
@@ -146,6 +176,15 @@ fastcgi_param  REDIRECT_STATUS    200;
 fastcgi_param  HTTP_PROXY         "";
 `
 
+// acmeLocation serves Let's Encrypt's HTTP-01 challenge files.
+func acmeLocation(w func(string, ...any), p Paths) {
+	w("    location ^~ /.well-known/acme-challenge/ {")
+	w("        root %s;", p.ACMEDir)
+	w("        default_type text/plain;")
+	w("        try_files $uri =404;")
+	w("    }")
+}
+
 // DocRoot is the absolute document root of a site.
 func DocRoot(p Paths, s model.Site) string {
 	r := filepath.Join(p.SiteDir(s.Name), "public")
@@ -162,23 +201,58 @@ func Vhost(p Paths, st model.Settings, s model.Site) string {
 	b.WriteString(header)
 	w("# %s (%s)", s.Domain, s.Type.Label())
 	names := s.Hostnames()
-	if s.RedirectAliases && len(s.Aliases) > 0 {
-		names = []string{s.Domain}
+	tls := s.ServesTLS()
+	listen := func() {
+		if tls {
+			w("    listen 443 ssl http2;")
+			if p.IPv6 {
+				w("    listen [::]:443 ssl http2;")
+			}
+			w("    ssl_certificate %s;", p.CertFile(s.Name))
+			w("    ssl_certificate_key %s;", p.KeyFile(s.Name))
+			return
+		}
+		w("    listen 80;")
+		if p.IPv6 {
+			w("    listen [::]:80;")
+		}
+	}
+	if tls {
+		// Plain HTTP only answers certificate checks and sends everyone else
+		// to HTTPS.
 		w("server {")
 		w("    listen 80;")
 		if p.IPv6 {
 			w("    listen [::]:80;")
 		}
+		w("    server_name %s;", strings.Join(names, " "))
+		w("    access_log %s berth;", filepath.Join(p.LogDir, s.Name, "access.log"))
+		acmeLocation(w, p)
+		w("    location / {")
+		if s.RedirectAliases && len(s.Aliases) > 0 {
+			w("        return 301 https://%s$request_uri;", s.Domain)
+		} else {
+			w("        return 301 https://$host$request_uri;")
+		}
+		w("    }")
+		w("}")
+	}
+	if s.RedirectAliases && len(s.Aliases) > 0 {
+		names = []string{s.Domain}
+		w("server {")
+		listen()
 		w("    server_name %s;", strings.Join(s.Aliases, " "))
 		w("    access_log %s berth;", filepath.Join(p.LogDir, s.Name, "access.log"))
-		w("    return 301 $berth_scheme://%s$request_uri;", s.Domain)
+		if !tls && s.LocalTLS() {
+			acmeLocation(w, p)
+		}
+		w("    location / {")
+		w("        return 301 $berth_scheme://%s$request_uri;", s.Domain)
+		w("    }")
 		w("}")
 	}
 	w("server {")
-	w("    listen 80;")
-	if p.IPv6 {
-		w("    listen [::]:80;")
-	}
+	listen()
 	w("    server_name %s;", strings.Join(names, " "))
 	w("    root %s;", DocRoot(p, s))
 	w("    index index.php index.html index.htm;")
@@ -186,7 +260,10 @@ func Vhost(p Paths, st model.Settings, s model.Site) string {
 	w("    error_log %s warn;", filepath.Join(p.LogDir, s.Name, "error.log"))
 	w("    client_max_body_size %dm;", s.UploadMB)
 	w("    server_tokens off;")
-	if st.ProxyOnly {
+	if !tls && s.LocalTLS() {
+		acmeLocation(w, p)
+	}
+	if st.ProxyOnly && !s.LocalTLS() {
 		w("    if ($berth_from_proxy = 0) {")
 		w("        return 403;")
 		w("    }")

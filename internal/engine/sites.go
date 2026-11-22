@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -88,6 +89,10 @@ func (e *Engine) CreateSite(ctx context.Context, req CreateRequest, author strin
 		return CreateResult{}, fmt.Errorf("unknown exposure %q", s.Halyard.Exposure)
 	}
 	s.SFTP.PasswordSet = false
+	s.TLS = model.SiteTLS{}
+	if s.TLSMode == model.TLSModeLocal && !s.HTTPS {
+		s.TLSMode = model.TLSModeProxy
+	}
 	if s.Type.HasDB() {
 		s.DB = &model.Database{Name: "site_" + strings.ToLower(s.Name), User: "site_" + strings.ToLower(s.Name), Password: Password(24)}
 	} else {
@@ -153,6 +158,7 @@ func (e *Engine) CreateSite(ctx context.Context, req CreateRequest, author strin
 		_ = e.Store.SaveSite(ctx, cur)
 		if err == nil {
 			e.syncHalyard(ctx, &cur, logf)
+			e.firstCert(ctx, cur, logf)
 		}
 		return err
 	})
@@ -235,6 +241,7 @@ func (e *Engine) RetryProvision(ctx context.Context, name string) (int64, string
 		_ = e.Store.SaveSite(ctx, cur)
 		if err == nil {
 			e.syncHalyard(ctx, &cur, logf)
+			e.firstCert(ctx, cur, logf)
 		}
 		return err
 	})
@@ -256,6 +263,7 @@ func (e *Engine) UpdateSite(ctx context.Context, in model.Site, replaceURLs bool
 	next := cur
 	next.Domain, next.Aliases, next.PHPVersion, next.DocRoot = in.Domain, in.Aliases, in.PHPVersion, in.DocRoot
 	next.FrontController, next.HTTPS, next.Enabled = in.FrontController, in.HTTPS, in.Enabled
+	next.TLSMode = in.TLSMode
 	next.RedirectAliases = in.RedirectAliases
 	next.UploadMB, next.MemoryMB, next.MaxChildren = in.UploadMB, in.MemoryMB, in.MaxChildren
 	next.Backups, next.Notes = in.Backups, in.Notes
@@ -283,6 +291,10 @@ func (e *Engine) UpdateSite(ctx context.Context, in model.Site, replaceURLs bool
 		return next, 0, err
 	}
 	e.Store.AddEvent(ctx, "info", "site", next.Name, author+" updated "+next.Domain)
+	if next.LocalTLS() && next.Status == model.StatusActive && (next.TLS.Status != model.TLSActive || !next.TLSCovers()) {
+		next.TLS.NextTry = time.Time{}
+		e.firstCert(ctx, next, func(string, ...any) {})
+	}
 	var jobID int64
 	urlChanged := cur.URL() != next.URL()
 	hostsChanged := strings.Join(cur.Hostnames(), ",") != strings.Join(next.Hostnames(), ",") || cur.HTTPS != next.HTTPS
@@ -351,6 +363,7 @@ func (e *Engine) DeleteSite(ctx context.Context, name string, finalBackup bool, 
 				logf("Could not delete files: %v", err)
 			}
 			_ = os.RemoveAll(e.Cfg.LogDir + "/" + s.Name)
+			_ = os.RemoveAll(filepath.Dir(e.Paths().CertFile(s.Name)))
 		}
 		logf("Removing system user %s", s.User())
 		if err := e.removeUser(ctx, s); err != nil {
@@ -400,6 +413,19 @@ func (e *Engine) SetNginxCustom(ctx context.Context, name, custom, author string
 	}
 	e.Store.AddEvent(ctx, "info", "site", name, author+" changed the custom nginx config of "+next.Domain)
 	return next, nil
+}
+
+// firstCert starts a job for a site's certificate when it needs one. The
+// job waits for the caller's lock on the site. The site works over HTTP
+// meanwhile, and Berth keeps trying if it fails.
+func (e *Engine) firstCert(ctx context.Context, s model.Site, logf Logf) {
+	st, _ := e.Store.Settings(ctx)
+	if !s.LocalTLS() || st.ACME.Off || e.Cfg.DryRun || !certDue(s, time.Now()) && s.TLS.Status == model.TLSActive {
+		return
+	}
+	if _, err := e.RequestCert(ctx, s.Name); err == nil {
+		logf("Requesting an HTTPS certificate from Let's Encrypt (see the next job)")
+	}
 }
 
 // MoveSite gives a site to another account.
