@@ -82,7 +82,7 @@ func (s *Server) getSite(w http.ResponseWriter, r *http.Request) {
 		"sftp_available": s.Cfg.SFTP.Enabled, "uptime": uptime,
 		"cloudflare": admin && s.Plugins.ActiveFor(r.Context(), cloudflare.ID, site.AccountID),
 		"halyard":    admin && s.Engine.HalyardFor(r.Context(), site.AccountID),
-		"vulns": s.Engine.VulnCounts(r.Context(), []model.Site{site})[site.Name],
+		"vulns":      s.Engine.VulnCounts(r.Context(), []model.Site{site})[site.Name],
 	})
 }
 
