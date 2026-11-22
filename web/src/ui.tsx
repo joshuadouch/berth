@@ -193,15 +193,19 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = [], pollMs = 
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [n, setN] = useState(0);
+  const [loading, setLoading] = useState(false);
   useEffect(() => {
     let alive = true;
-    const run = () => fn().then((d) => { if (alive) { setData(d); setError(null); } }).catch((e) => alive && setError(e));
+    const run = () => {
+      setLoading(true);
+      return fn().then((d) => { if (alive) { setData(d); setError(null); } }).catch((e) => alive && setError(e)).finally(() => alive && setLoading(false));
+    };
     run();
     const id = pollMs ? window.setInterval(run, pollMs) : 0;
     return () => { alive = false; if (id) window.clearInterval(id); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, n]);
-  return { data, error, reload: () => setN((x) => x + 1), setData };
+  return { data, error, loading, reload: () => setN((x) => x + 1), setData };
 }
 
 export function Loading() {

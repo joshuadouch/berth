@@ -155,14 +155,10 @@ func (e *Engine) WordPressInfo(ctx context.Context, s model.Site) WPInfo {
 		return info
 	}
 	info.Version = strings.TrimSpace(v)
-	if out, err := e.wp(ctx, s, "", "core", "check-update", "--field=version", "--format=csv"); err == nil {
-		lines := strings.Fields(out)
-		for _, l := range lines {
-			if l != "version" && !strings.HasPrefix(l, "Success") {
-				info.CoreUpdate = l
-				break
-			}
-		}
+	// --force-check: without it WordPress answers from a cache that can be
+	// up to 12 hours old, so a finished update still looked pending.
+	if out, err := e.wp(ctx, s, "", "core", "check-update", "--force-check", "--field=version", "--format=csv"); err == nil {
+		info.CoreUpdate = newestVersion(out, info.Version)
 	}
 	if out, err := e.wp(ctx, s, "", "option", "get", "siteurl"); err == nil {
 		info.SiteURL = strings.TrimSpace(out)
@@ -307,4 +303,23 @@ func (e *Engine) WPSearchReplace(ctx context.Context, s model.Site, o SearchRepl
 	}
 	out, err := e.wp(ctx, s, "", args...)
 	return strings.TrimSpace(out), err
+}
+
+var versionRe = regexp.MustCompile(`^\d+(\.\d+)+$`)
+
+// newestVersion picks the highest version number from check-update output
+// that is newer than current, ignoring headers, "Success:" lines and
+// anything else that is not a version.
+func newestVersion(out, current string) string {
+	best := ""
+	for _, f := range strings.Fields(out) {
+		f = strings.Trim(f, `"`)
+		if !versionRe.MatchString(f) || compareVersions(f, current) <= 0 {
+			continue
+		}
+		if best == "" || compareVersions(f, best) > 0 {
+			best = f
+		}
+	}
+	return best
 }
