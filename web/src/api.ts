@@ -41,7 +41,7 @@ export interface User { id: string; username: string; email: string; totp_enable
 export interface Account { id: string; name: string; email: string; notes: string; suspended: boolean; plan_id: string; created_at: string }
 export interface Plan {
   id: string; name: string; max_sites: number; disk_mb: number; dns_zones: number; max_domains: number; memory_mb: number; workers: number;
-  upload_mb: number; db_connections: number; allow_shell: boolean; no_sftp: boolean;
+  upload_mb: number; db_connections: number; cpu_percent: number; ram_mb: number; max_processes: number; allow_shell: boolean; no_sftp: boolean;
 }
 export interface PlanUsage { plan: Plan | null; disk_used: number; sites: number }
 export interface AccountView extends Account { users: User[]; sites: string[]; usage: PlanUsage }

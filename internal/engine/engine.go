@@ -189,7 +189,7 @@ func (e *Engine) managedFiles() []string {
 		m, _ := filepath.Glob(filepath.Join(config.V(p.PoolDir, v), "berth-*.conf"))
 		files = append(files, m...)
 	}
-	return files
+	return append(files, e.isolatedFiles()...)
 }
 
 func versionOfPool(p render.Paths, path string) string {
@@ -219,6 +219,8 @@ func (e *Engine) Apply(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	before := e.runningInstances()
+	after := e.isolate(ctx, out.Files, sites)
 	for _, s := range sites {
 		_ = os.MkdirAll(filepath.Join(e.Cfg.LogDir, s.Name), 0o750)
 	}
@@ -226,12 +228,18 @@ func (e *Engine) Apply(ctx context.Context) error {
 
 	// Work out the changes, keeping the old content for rollback.
 	old := map[string]*string{}
-	nginxChanged := false
+	nginxChanged, unitsChanged := false, false
 	fpm := map[string]bool{}
+	iso := map[string]bool{}
 	mark := func(path string) {
-		if v := versionOfPool(p, path); v != "" {
-			fpm[v] = true
-		} else {
+		switch {
+		case versionOfPool(p, path) != "":
+			fpm[versionOfPool(p, path)] = true
+		case e.instanceOf(path) != "":
+			iso[e.instanceOf(path)] = true
+		case e.isUnit(path):
+			unitsChanged = true
+		default:
 			nginxChanged = true
 		}
 	}
@@ -306,11 +314,62 @@ func (e *Engine) Apply(ctx context.Context) error {
 			return fmt.Errorf("PHP %s rejected the new config, so nothing changed: %w", v, err)
 		}
 	}
-	// Reload PHP first, so new sockets exist before nginx sends traffic.
+	isNext := map[string]bool{}
+	for _, inst := range after {
+		isNext[inst] = true
+		if !iso[inst] {
+			continue
+		}
+		_, v, _ := strings.Cut(inst, "-")
+		if _, err := e.Run.Run(ctx, config.V(e.Cfg.PHP.FPMBinary, v), "-t", "-y", filepath.Join(e.instDir(inst), "php-fpm.conf")); err != nil {
+			rollback()
+			return fmt.Errorf("PHP %s rejected the new config, so nothing changed: %w", v, err)
+		}
+	}
+	// Reload PHP first, so new sockets exist before nginx sends traffic. A
+	// pool moving between masters must leave the old one before the new one
+	// takes its socket: stop retired masters, reload the shared ones, then
+	// start or reload the accounts' own.
 	var errs []string
+	for _, inst := range before {
+		if !isNext[inst] {
+			if _, err := e.Run.Run(ctx, "systemctl", "stop", "berth-fpm@"+inst+".service"); err != nil {
+				errs = append(errs, fmt.Sprintf("stop PHP for %s: %v", inst, err))
+			}
+			_ = os.Remove(e.instDir(inst))
+			_ = os.Remove(e.unitPath("berth-fpm@" + inst + ".service.d"))
+		}
+	}
 	for _, v := range versions {
 		if _, err := e.Run.Shell(ctx, config.V(e.Cfg.PHP.ReloadCmd, v)); err != nil {
 			errs = append(errs, fmt.Sprintf("reload PHP %s: %v", v, err))
+		}
+	}
+	if unitsChanged || len(iso) > 0 {
+		if _, err := e.Run.Run(ctx, "systemctl", "daemon-reload"); err != nil {
+			errs = append(errs, fmt.Sprintf("systemd: %v", err))
+		}
+		if len(after) > 0 {
+			_, _ = e.Run.Run(ctx, "systemctl", "enable", "berth-fpm.target")
+		} else {
+			_ = os.Remove(e.unitPath("multi-user.target.wants/berth-fpm.target"))
+		}
+	}
+	was := map[string]bool{}
+	for _, inst := range before {
+		was[inst] = true
+	}
+	for _, inst := range after {
+		unit := "berth-fpm@" + inst + ".service"
+		var err error
+		switch {
+		case !was[inst]:
+			_, err = e.Run.Run(ctx, "systemctl", "start", unit)
+		case iso[inst]:
+			_, err = e.Run.Run(ctx, "systemctl", "reload-or-restart", unit)
+		}
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("start PHP for %s: %v", inst, err))
 		}
 	}
 	if nginxChanged {

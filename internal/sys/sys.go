@@ -17,6 +17,8 @@ type Runner struct {
 	Log    *slog.Logger
 	// Env is added to every command's environment.
 	Env []string
+	// Record, when set, hears every command a dry run skips (tests).
+	Record func(cmd string)
 }
 
 // Cmd describes one command.
@@ -54,6 +56,9 @@ func (r *Runner) Exec(ctx context.Context, c Cmd) (string, error) {
 	if r.DryRun {
 		if r.Log != nil {
 			r.Log.Info("dry run", "cmd", desc)
+		}
+		if r.Record != nil {
+			r.Record(desc)
 		}
 		return "", nil
 	}

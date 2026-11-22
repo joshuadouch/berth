@@ -48,7 +48,13 @@ type Config struct {
 		Socket    string `yaml:"socket"` // {site} is replaced with the site name
 		// InstallCmd installs a PHP version and the extensions sites need.
 		InstallCmd string `yaml:"install_cmd"`
+		// IsolatedDir holds the PHP-FPM masters of accounts whose plan caps
+		// CPU or memory, one directory per account and PHP version.
+		IsolatedDir string `yaml:"isolated_dir"`
 	} `yaml:"php"`
+
+	// SystemdDir is where Berth writes the units and slices for those masters.
+	SystemdDir string `yaml:"systemd_dir"`
 
 	MySQL struct {
 		Client string `yaml:"client"` // mariadb, run as root over the socket
@@ -88,6 +94,8 @@ func Default() *Config {
 	c.PHP.ReloadCmd = "systemctl reload-or-restart php{v}-fpm"
 	c.PHP.CLI = "/usr/bin/php{v}"
 	c.PHP.Socket = "/run/php/berth-{site}.sock"
+	c.PHP.IsolatedDir = "/etc/berth/fpm"
+	c.SystemdDir = "/etc/systemd/system"
 	c.PHP.InstallCmd = "apt-get update -q && apt-get install -y -q php{v}-fpm php{v}-cli php{v}-mysql php{v}-curl php{v}-gd php{v}-intl php{v}-mbstring php{v}-xml php{v}-zip php{v}-bcmath php{v}-soap php{v}-gmp && (apt-get install -y -q php{v}-imagick php{v}-opcache || true) && systemctl enable --now php{v}-fpm"
 	c.MySQL.Client = "/usr/bin/mariadb"
 	c.MySQL.Dump = "/usr/bin/mariadb-dump"
