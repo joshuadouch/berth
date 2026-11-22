@@ -107,6 +107,12 @@ func serve(cfgPath string) error {
 
 	eng := engine.New(cfg, st, log)
 	eng.Version = version
+	reg := plugin.NewRegistry(st, log, plugins.All()...)
+	eng.Plugins = reg
+	// Halyard and Cloudflare were settings before they were plugins.
+	if err := plugins.Migrate(ctx, st, reg); err != nil {
+		log.Error("moving Halyard and Cloudflare settings into plugins failed", "err", err)
+	}
 	// Re-apply on start so fixes in a new release reach every site.
 	if err := eng.Apply(ctx); err != nil {
 		log.Error("startup apply failed; existing config left in place", "err", err)
@@ -120,8 +126,7 @@ func serve(cfgPath string) error {
 			return err
 		}
 	}
-	srv := &api.Server{Cfg: cfg, Store: st, Engine: eng, Log: log, UI: web.FS(), Version: version,
-		Plugins: plugin.NewRegistry(st, log, plugins.All()...)}
+	srv := &api.Server{Cfg: cfg, Store: st, Engine: eng, Log: log, UI: web.FS(), Version: version, Plugins: reg}
 	hs := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           srv.Handler(),

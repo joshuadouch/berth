@@ -12,6 +12,7 @@ import (
 
 	"github.com/joshuadouch/berth/internal/engine"
 	"github.com/joshuadouch/berth/internal/model"
+	"github.com/joshuadouch/berth/internal/plugins/cloudflare"
 )
 
 type siteRow struct {
@@ -70,7 +71,7 @@ func (s *Server) getSite(w http.ResponseWriter, r *http.Request) {
 	backups, _ := s.Engine.Backups(r.Context(), site.Name)
 	jobs, _ := s.Store.Jobs(r.Context(), site.Name, 15)
 	events, _ := s.Store.Events(r.Context(), site.Name, 30)
-	st, _ := s.Store.Settings(r.Context())
+	admin := currentUser(r).IsAdmin()
 	var uptime *engine.UptimeState
 	if u, ok := s.Engine.UptimeStates(r.Context(), []model.Site{site})[site.Name]; ok {
 		uptime = &u
@@ -78,7 +79,9 @@ func (s *Server) getSite(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"site": site, "usage": s.Engine.SiteUsage()[site.Name], "backups": backups, "jobs": jobs, "events": events,
 		"dir": s.Engine.Paths().SiteDir(site.Name), "user": site.User(), "socket": s.Cfg.Socket(site.Name),
-		"sftp_available": s.Cfg.SFTP.Enabled, "cloudflare": st.CloudflareToken != "" && currentUser(r).IsAdmin(), "uptime": uptime,
+		"sftp_available": s.Cfg.SFTP.Enabled, "uptime": uptime,
+		"cloudflare": admin && s.Plugins.ActiveFor(r.Context(), cloudflare.ID, site.AccountID),
+		"halyard":    admin && s.Engine.HalyardFor(r.Context(), site.AccountID),
 		"vulns": s.Engine.VulnCounts(r.Context(), []model.Site{site})[site.Name],
 	})
 }

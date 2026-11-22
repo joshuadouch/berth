@@ -12,6 +12,14 @@ import (
 	"github.com/joshuadouch/berth/internal/model"
 )
 
+// HalyardID is the Halyard plugin's ID.
+const HalyardID = "halyard"
+
+// HalyardFor reports whether an account's sites may be published on Halyard.
+func (e *Engine) HalyardFor(ctx context.Context, account string) bool {
+	return e.Plugins == nil || e.Plugins.ActiveFor(ctx, HalyardID, account)
+}
+
 // halyardClient returns a client for the saved Halyard settings.
 func (e *Engine) halyardClient(ctx context.Context) (*halyard.Client, model.HalyardSettings, error) {
 	st, err := e.Store.Settings(ctx)
@@ -356,7 +364,7 @@ func (e *Engine) dropUnusedCert(ctx context.Context, c *halyard.Client, id strin
 // syncHalyard creates or updates the site's host on Halyard when the site is
 // published there. Failures are recorded on the site, never fatal.
 func (e *Engine) syncHalyard(ctx context.Context, s *model.Site, logf Logf) {
-	if !s.Halyard.Enabled {
+	if !s.Halyard.Enabled || !e.HalyardFor(ctx, s.AccountID) {
 		return
 	}
 	err := e.pushHalyard(ctx, s, logf)
@@ -416,6 +424,9 @@ func (e *Engine) LinkHalyard(ctx context.Context, name string, l model.HalyardLi
 	s, err := e.Store.Site(ctx, name)
 	if err != nil {
 		return s, err
+	}
+	if !e.HalyardFor(ctx, s.AccountID) {
+		return s, errors.New("the Halyard plugin is not on for this site's account")
 	}
 	if !validExposure(l.Exposure) {
 		return s, fmt.Errorf("unknown exposure %q", l.Exposure)

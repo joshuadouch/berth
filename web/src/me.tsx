@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react';
-import type { Account, User } from './api';
+import type { Account, PluginLink, User } from './api';
 
-export interface Me { user: User; account: Account; name: string; version: string }
+export interface Me { user: User; account: Account; name: string; version: string; plugins: PluginLink[] }
 
 const MeContext = createContext<Me | null>(null);
 export const MeProvider = MeContext.Provider;

@@ -74,3 +74,38 @@ func TestRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+type perAccount struct{ fake }
+
+func (*perAccount) Info() Info { return Info{ID: "pa", Name: "PA", PerAccount: true} }
+
+func TestActiveFor(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "b.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	r := NewRegistry(st, nil, &perAccount{}, &fake{})
+	if r.ActiveFor(ctx, "pa", "a1") {
+		t.Fatal("off plugin active")
+	}
+	_, _ = r.Save(ctx, "pa", true, nil)
+	if r.ActiveFor(ctx, "pa", "a1") {
+		t.Fatal("active without accounts")
+	}
+	if err := r.SetAccounts(ctx, "pa", []string{"a1", "a1", ""}); err != nil {
+		t.Fatal(err)
+	}
+	if !r.ActiveFor(ctx, "pa", "a1") || r.ActiveFor(ctx, "pa", "a2") {
+		t.Fatal("accounts not applied")
+	}
+	// Saving settings keeps the accounts.
+	_, _ = r.Save(ctx, "pa", true, Config{})
+	if v, _ := r.View(ctx, "pa"); len(v.Accounts) != 1 {
+		t.Fatalf("accounts %v", v.Accounts)
+	}
+	if err := r.SetAccounts(ctx, "fake", []string{"a1"}); err == nil {
+		t.Fatal("server-wide plugin took accounts")
+	}
+}

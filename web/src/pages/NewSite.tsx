@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMe } from '../me';
-import { AccountView, bytes, del, exposureLabel, get, HalyardInfo, Job, nameFromDomain, post, Settings, Site, SiteType, upload, UploadInfo, vipLabel } from '../api';
+import { AccountView, PluginView, bytes, del, exposureLabel, get, HalyardInfo, Job, nameFromDomain, post, Settings, Site, SiteType, upload, UploadInfo, vipLabel } from '../api';
 import { Chips, Copyable, ErrorBox, Field, Icon, JobView, Loading, Toggle, useLoad } from '../ui';
 
 const types: { v: SiteType; icon: string; title: string; text: string }[] = [
@@ -36,6 +36,9 @@ export default function NewSite() {
   const hal = useLoad(() => (isAdmin ? get<HalyardInfo>('/halyard') : Promise.resolve(null)));
   const accounts = useLoad(() => (isAdmin ? get<AccountView[]>('/accounts') : Promise.resolve([] as AccountView[])));
   const [account, setAccount] = useState(sp.get('account') || me?.user.account_id || '');
+  const plugins = useLoad(() => (isAdmin ? get<PluginView[]>('/plugins') : Promise.resolve([] as PluginView[])));
+  const halPlugin = plugins.data?.find((p) => p.id === 'halyard');
+  const halyardOn = !!halPlugin?.enabled && halPlugin.accounts.includes(account);
   const [publish, setPublish] = useState(true);
   const [vip, setVip] = useState('');
   const [exposure, setExposure] = useState('');
@@ -67,7 +70,7 @@ export default function NewSite() {
   const hasDB = type !== 'php';
   const importing = imp && (!!impFiles || (hasDB && !!impDB));
   const importReady = !imp || (type === 'wordpress' ? !!impFiles && !!impDB : importing);
-  const halyardReady = !!hal.data?.configured && !hal.data.error && hal.data.pool_ok;
+  const halyardReady = halyardOn && !!hal.data?.configured && !hal.data.error && hal.data.pool_ok;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setErr(null);

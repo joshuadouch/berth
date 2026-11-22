@@ -361,9 +361,8 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	tokenSet := st.Halyard.Token != ""
 	secretSet := st.S3.SecretKey != ""
-	cfSet := st.CloudflareToken != ""
 	st.Halyard.Token, st.S3.SecretKey, st.CloudflareToken = "", "", ""
-	writeJSON(w, 200, map[string]any{"settings": st, "halyard_token_set": tokenSet, "s3_secret_set": secretSet, "cloudflare_token_set": cfSet,
+	writeJSON(w, 200, map[string]any{"settings": st, "halyard_token_set": tokenSet, "s3_secret_set": secretSet,
 		"s3_error":      s.Engine.RemoteError(r.Context()),
 		"installed_php": s.Engine.InstalledPHP(), "php_versions": model.PHPVersions})
 }
@@ -387,13 +386,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if st.S3.SecretKey == "" {
 		st.S3.SecretKey = cur.S3.SecretKey
 	}
-	switch st.CloudflareToken {
-	case "":
-		st.CloudflareToken = cur.CloudflareToken
-	case "-":
-		st.CloudflareToken = ""
-	}
-	st.CloudflareToken = strings.TrimSpace(st.CloudflareToken)
+	// Cloudflare lives in its plugin now; keep whatever is left here as is.
+	st.CloudflareToken, st.AccessTeam, st.AccessAUD, st.AccessEmails = cur.CloudflareToken, cur.AccessTeam, cur.AccessAUD, cur.AccessEmails
 	if err := st.Normalize(); err != nil {
 		writeErr(w, 400, err.Error())
 		return

@@ -28,43 +28,6 @@ func rangeParam(r *http.Request) time.Duration {
 	return 24 * time.Hour
 }
 
-// Cloudflare -------------------------------------------------------------------
-
-func (s *Server) purgeCloudflare(w http.ResponseWriter, r *http.Request) {
-	site, ok := s.site(w, r)
-	if !ok {
-		return
-	}
-	n, err := s.Engine.PurgeCloudflare(r.Context(), site)
-	if err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	s.Store.AddEvent(r.Context(), "info", "site", site.Name, currentUser(r).Username+" cleared Cloudflare's cache for "+site.Domain)
-	writeJSON(w, 200, map[string]any{"ok": true, "hosts": n})
-}
-
-func (s *Server) testCloudflare(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Token string `json:"token"`
-	}
-	_ = readJSON(r, &req)
-	if req.Token == "" {
-		st, _ := s.Store.Settings(r.Context())
-		req.Token = st.CloudflareToken
-	}
-	if req.Token == "" {
-		writeErr(w, 400, "enter a token first")
-		return
-	}
-	msg, err := s.Engine.TestCloudflare(r.Context(), strings.TrimSpace(req.Token))
-	if err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	writeJSON(w, 200, map[string]any{"message": msg})
-}
-
 // WordPress tools ----------------------------------------------------------------
 
 func (s *Server) wpSearchReplace(w http.ResponseWriter, r *http.Request) {

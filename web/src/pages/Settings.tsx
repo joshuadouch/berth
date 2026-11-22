@@ -1,9 +1,35 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { exposureLabel, get, HalyardInfo, post, put, Settings as S, vipLabel } from '../api';
 import { Badge, Chips, ErrorBox, Field, Loading, Toggle, useLoad, useToast } from '../ui';
 import type { Me } from '../me';
 
-interface SettingsView { settings: S; halyard_token_set: boolean; s3_secret_set: boolean; cloudflare_token_set: boolean; s3_error: string; installed_php: string[]; php_versions: string[] }
+interface SettingsView { settings: S; halyard_token_set: boolean; s3_secret_set: boolean; s3_error: string; installed_php: string[]; php_versions: string[] }
+
+// HalyardPage is the Halyard plugin's page: the connection to the load
+// balancer and the defaults for publishing sites.
+export function HalyardPage() {
+  const { data, error, reload } = useLoad(() => get<SettingsView>('/settings'));
+  const [f, setF] = useState<S | null>(null);
+  const [err, setErr] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  useEffect(() => { if (data) setF(data.settings); }, [data]);
+  if (!data || !f) return error ? <ErrorBox error={error} /> : <Loading />;
+  const set = (p: Partial<S>) => setF({ ...f, ...p });
+  const save = async () => {
+    setErr(null); setBusy(true);
+    try { await put('/settings', f); toast('Halyard settings saved'); reload(); } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+  return (
+    <>
+      <div className="head"><div><h1>Halyard</h1><div className="sub">Publish sites on your load balancer. Only sites of the accounts this plugin is on for (see <Link to="/plugins">Plugins</Link>) can be published.</div></div>
+        <button className="btn p" disabled={busy} onClick={save}>Save</button></div>
+      <ErrorBox error={err} />
+      <div style={{ maxWidth: 860 }}><HalyardCard f={f} set={set} tokenSet={data.halyard_token_set} saved={data.settings} onSaved={reload} /></div>
+    </>
+  );
+}
 
 export default function Settings({ me }: { me: Me }) {
   const { data, error, reload } = useLoad(() => get<SettingsView>('/settings'));
@@ -31,7 +57,7 @@ export default function Settings({ me }: { me: Me }) {
             </Field>
             <Toggle on={f.proxy_only} onChange={(v) => set({ proxy_only: v })} label="Refuse visitors that skip the load balancer" help="Sites answer 403 unless the request comes from a trusted proxy (or this machine)." />
           </div></div>
-          <HalyardCard f={f} set={set} tokenSet={data.halyard_token_set} saved={data.settings} onSaved={reload} />
+          <div className="note">Halyard and Cloudflare are plugins now: set them up on the <Link to="/plugins">Plugins</Link> page and choose the accounts they are on for.</div>
           <div className="card"><div className="ch"><h3>New sites</h3></div><div className="cb">
             <Field label="Default PHP version"><select className="input" value={f.default_php} onChange={(e) => set({ default_php: e.target.value })}>
               {data.php_versions.map((v) => <option key={v} value={v} disabled={!data.installed_php.includes(v)}>PHP {v}{data.installed_php.includes(v) ? '' : ' (not installed)'}</option>)}</select></Field>
@@ -52,15 +78,7 @@ export default function Settings({ me }: { me: Me }) {
           <S3Card f={f} set={set} secretSet={data.s3_secret_set} remoteError={data.s3_error} />
         </div>
         <div className="stack">
-          <div className="card"><div className="ch"><h3>Cloudflare Access</h3>{f.access_team && f.access_aud ? <Badge kind="g">On</Badge> : <Badge kind="n">Off</Badge>}</div><div className="cb">
-            <p className="muted" style={{ marginBottom: 12 }}>Publish this panel through Cloudflare Access and you are signed in by Access instead of a password.</p>
-            <div className="grid2">
-              <Field label="Team name"><input className="input mono" value={f.access_team} onChange={(e) => set({ access_team: e.target.value })} placeholder="myteam" /></Field>
-              <Field label="Application AUD tag"><input className="input mono" value={f.access_aud} onChange={(e) => set({ access_aud: e.target.value })} /></Field>
-            </div>
-            <Field label="Allowed emails" help={`Your account email (${me.user.email || 'not set'}) is always allowed.`}><Chips values={f.access_emails ?? []} onChange={(v) => set({ access_emails: v })} placeholder="you@example.com" /></Field>
-          </div></div>
-          <MonitoringCard f={f} set={set} tokenSet={data.cloudflare_token_set} />
+          <MonitoringCard f={f} set={set} />
           <AccountCard me={me} />
         </div>
       </div>
@@ -68,23 +86,11 @@ export default function Settings({ me }: { me: Me }) {
   );
 }
 
-function MonitoringCard({ f, set, tokenSet }: { f: S; set: (p: Partial<S>) => void; tokenSet: boolean }) {
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
-  const test = () => {
-    setBusy(true);
-    post<{ message: string }>('/settings/cloudflare/test', { token: f.cloudflare_token ?? '' }).then((r) => toast(r.message)).catch((e) => toast(e.message, true)).finally(() => setBusy(false));
-  };
+function MonitoringCard({ f, set }: { f: S; set: (p: Partial<S>) => void }) {
   return (
-    <div className="card"><div className="ch"><h3>Monitoring and Cloudflare</h3></div><div className="cb">
+    <div className="card"><div className="ch"><h3>Monitoring</h3></div><div className="cb">
       <Toggle on={!f.no_uptime} onChange={(v) => set({ no_uptime: !v })} label="Uptime checks" help="Request every live site once a minute and log outages in Activity. Turn off single sites on their Settings tab." />
       <Toggle on={!f.no_vuln_scan} onChange={(v) => set({ no_vuln_scan: !v })} label="Daily vulnerability check" help="Compare WordPress, plugins and themes with the free WPVulnerability database once a day." />
-      <Field label="Cloudflare API token" help={<>For the <b>Clear cache</b> button on each site. Create a token with <b>Zone → Zone → Read</b> and <b>Zone → Cache Purge → Purge</b> on your zones.{tokenSet && ' A token is saved; leave empty to keep it, or enter - to remove it.'}</>}>
-        <div className="row" style={{ gap: 8 }}>
-          <input className="input mono" style={{ flex: 1 }} type="password" autoComplete="off" value={f.cloudflare_token ?? ''} placeholder={tokenSet ? '••••••••' : ''} onChange={(e) => set({ cloudflare_token: e.target.value })} />
-          <button className="btn" type="button" disabled={busy || (!tokenSet && !f.cloudflare_token)} onClick={test}>{busy ? 'Testing…' : 'Test'}</button>
-        </div>
-      </Field>
     </div></div>
   );
 }
@@ -180,7 +186,7 @@ function HalyardCard({ f, set, tokenSet, saved, onSaved }: { f: S; set: (p: Part
       {connected && !info && <Loading />}
       {!connected && <div className="note" style={{ marginBottom: 0 }}>Save the URL and token, then choose the pool and VIP here.</div>}
       <ErrorBox error={err} />
-      <div className="note" style={{ marginBottom: 0, marginTop: 12 }}>Add Halyard's node addresses as trusted proxies above too, so sites see visitors' real addresses.</div>
+      <div className="note" style={{ marginBottom: 0, marginTop: 12 }}>Add Halyard's node addresses as trusted proxies on the <Link to="/settings">Settings</Link> page too, so sites see visitors' real addresses.</div>
     </div></div>
   );
 }
