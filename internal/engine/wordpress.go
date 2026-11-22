@@ -1,11 +1,13 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,7 +20,7 @@ import (
 func (e *Engine) wp(ctx context.Context, s model.Site, stdin string, args ...string) (string, error) {
 	dir := e.Paths().SiteDir(s.Name)
 	full := append([]string{"-u", s.User(), "--", config.V(e.Cfg.PHP.CLI, s.PHPVersion),
-		"-d", "memory_limit=512M", e.Cfg.WPCLI, "--path=" + filepath.Join(dir, "public", s.DocRoot)}, args...)
+		"-d", "memory_limit=512M", "-d", "display_errors=stderr", e.Cfg.WPCLI, "--path=" + filepath.Join(dir, "public", s.DocRoot)}, args...)
 	// Files WP-CLI writes must be readable by nginx; Berth's umask is 027.
 	runuser, err := exec.LookPath("runuser")
 	if err != nil {
@@ -34,8 +36,33 @@ func (e *Engine) wp(ctx context.Context, s model.Site, stdin string, args ...str
 	if stdin != "" {
 		c.Stdin = strings.NewReader(stdin)
 	}
-	return e.Run.Exec(ctx, c)
+	// Keep stdout apart from stderr: old plugins print PHP warnings on every
+	// run, and they must not end up in values Berth reads (such as the site
+	// address) or in JSON it parses. stderr still shows in errors.
+	var stdout bytes.Buffer
+	c.Stdout = &stdout
+	_, err = e.Run.Exec(ctx, c)
+	return cleanWPOutput(stdout.String()), err
 }
+
+// cleanWPOutput drops PHP warnings, notices and deprecations that reach
+// stdout when a site turns display_errors on.
+func cleanWPOutput(out string) string {
+	if !strings.Contains(out, "Warning: ") && !strings.Contains(out, "Notice: ") && !strings.Contains(out, "Deprecated: ") {
+		return out
+	}
+	var keep []string
+	for _, l := range strings.Split(out, "\n") {
+		t := strings.TrimSpace(l)
+		if phpNotice.MatchString(t) {
+			continue
+		}
+		keep = append(keep, l)
+	}
+	return strings.Join(keep, "\n")
+}
+
+var phpNotice = regexp.MustCompile(`^(PHP )?(Warning|Notice|Deprecated|Strict Standards):  ?.* on line \d+$`)
 
 // wpExtraPHP is added to wp-config.php. HTTPS and the visitor's address
 // already reach PHP correctly through nginx (see render.fastcgiConf), so no
@@ -61,7 +88,7 @@ func (e *Engine) installWordPress(ctx context.Context, s model.Site, adminPasswo
 	logf("Downloading WordPress (%s)", locale)
 	if out, err := e.wp(ctx, s, "", "core", "download", "--locale="+locale); err != nil {
 		// Some locales have no package; fall back to English.
-		if locale == "en_US" || !strings.Contains(out, "locale") {
+		if locale == "en_US" || !strings.Contains(out+err.Error(), "locale") {
 			return err
 		}
 		logf("No %s package; downloading English and adding the language after", locale)

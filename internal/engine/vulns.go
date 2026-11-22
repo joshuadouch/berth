@@ -73,24 +73,74 @@ func (f *flex) UnmarshalJSON(b []byte) error {
 
 type apiVuln struct {
 	Name     flex `json:"name"`
-	Operator struct {
+	Operator obj[struct {
 		MinVersion  flex `json:"min_version"`
 		MinOperator flex `json:"min_operator"`
 		MaxVersion  flex `json:"max_version"`
 		MaxOperator flex `json:"max_operator"`
 		Unfixed     flex `json:"unfixed"`
-	} `json:"operator"`
-	Source []struct {
+	}] `json:"operator"`
+	Source list[struct {
 		ID   flex `json:"id"`
 		Name flex `json:"name"`
 		Link flex `json:"link"`
-	} `json:"source"`
-	Impact struct {
-		CVSS struct {
+	}] `json:"source"`
+	Impact obj[struct {
+		CVSS obj[struct {
 			Score    flex `json:"score"`
 			Severity flex `json:"severity"`
-		} `json:"cvss"`
-	} `json:"impact"`
+		}] `json:"cvss"`
+	}] `json:"impact"`
+}
+
+// obj reads a JSON object. The database is PHP, which sends an empty
+// array for an empty object and sometimes wraps an object in an array, so
+// an array yields its first object, and anything unreadable becomes the
+// zero value instead of failing the whole response.
+type obj[T any] struct{ V T }
+
+func (o *obj[T]) UnmarshalJSON(b []byte) error {
+	var zero T
+	o.V = zero
+	t := strings.TrimSpace(string(b))
+	switch {
+	case strings.HasPrefix(t, "{"):
+		var v T
+		if json.Unmarshal(b, &v) == nil {
+			o.V = v
+		}
+	case strings.HasPrefix(t, "["):
+		var raw []json.RawMessage
+		_ = json.Unmarshal(b, &raw)
+		for _, r := range raw {
+			var v T
+			if strings.HasPrefix(strings.TrimSpace(string(r)), "{") && json.Unmarshal(r, &v) == nil {
+				o.V = v
+				break
+			}
+		}
+	}
+	return nil
+}
+
+// list reads a JSON array of objects, skipping anything else.
+type list[T any] []T
+
+func (l *list[T]) UnmarshalJSON(b []byte) error {
+	var raw []json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		*l = nil
+		return nil
+	}
+	out := make([]T, 0, len(raw))
+	for _, r := range raw {
+		var v T
+		if json.Unmarshal(r, &v) == nil {
+			out = append(out, v)
+		}
+	}
+	*l = out
+	return nil
 }
 
 type apiResponse struct {
@@ -219,7 +269,7 @@ func versionMatches(v, op, bound string) bool {
 var severityNames = map[string]string{"c": "critical", "h": "high", "m": "medium", "l": "low", "n": ""}
 
 func toVuln(a apiVuln, kind, slug, name, version string) (Vuln, bool) {
-	o := a.Operator
+	o := a.Operator.V
 	if version != "" && (!versionMatches(version, string(o.MinOperator), string(o.MinVersion)) || !versionMatches(version, string(o.MaxOperator), string(o.MaxVersion))) {
 		return Vuln{}, false
 	}
@@ -228,8 +278,8 @@ func toVuln(a apiVuln, kind, slug, name, version string) (Vuln, bool) {
 	if string(o.MaxOperator) == "lt" && !v.Unfixed {
 		v.FixedIn = string(o.MaxVersion)
 	}
-	v.Score, _ = strconv.ParseFloat(string(a.Impact.CVSS.Score), 64)
-	sev := strings.ToLower(string(a.Impact.CVSS.Severity))
+	v.Score, _ = strconv.ParseFloat(string(a.Impact.V.CVSS.V.Score), 64)
+	sev := strings.ToLower(string(a.Impact.V.CVSS.V.Severity))
 	if n, ok := severityNames[sev]; ok {
 		sev = n
 	}

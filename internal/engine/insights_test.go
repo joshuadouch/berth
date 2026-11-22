@@ -38,7 +38,9 @@ const vulnFixture = `{"error":0,"message":null,"data":{"name":"Contact Form 7","
   "source":[{"id":"CVE-2020-35489","name":"CVE","link":"https://www.cve.org/CVERecord?id=CVE-2020-35489"}],
   "impact":{"cvss":{"version":"3.1","score":"10.0","severity":"c"}}},
  {"uuid":"b","name":"Contact Form 7 <= 5.8.3 - Open Redirect","operator":{"min_version":"5.0","min_operator":"ge","max_version":"5.8.3","max_operator":"le","unfixed":0},
-  "source":[],"impact":{"cvss":{"score":6.1}}}
+  "source":[],"impact":{"cvss":{"score":6.1}}},
+ {"uuid":"c","name":"Contact Form 7 < 5.9 - XSS","operator":{"max_version":"5.9","max_operator":"lt"},"source":{},"impact":[]},
+ {"uuid":"d","name":"Contact Form 7 < 6.0 - CSRF","operator":[],"source":[],"impact":[{"cvss":{"score":"8.1","severity":"h"}}]}
 ]}}`
 
 func TestVulnMatching(t *testing.T) {
@@ -58,6 +60,13 @@ func TestVulnMatching(t *testing.T) {
 	}
 	if _, ok := toVuln(list[1], "plugin", "contact-form-7", "CF7", "4.9"); ok {
 		t.Fatal("4.9 is below the affected range")
+	}
+	// PHP sends [] for an empty object; that must not break the response.
+	if v, ok := toVuln(list[2], "plugin", "contact-form-7", "CF7", "5.8"); !ok || v.FixedIn != "5.9" || v.Score != 0 {
+		t.Fatalf("empty impact: %+v %v", v, ok)
+	}
+	if v, ok := toVuln(list[3], "plugin", "contact-form-7", "CF7", "5.8"); !ok || v.Severity != "high" || v.Score != 8.1 {
+		t.Fatalf("impact wrapped in an array: %+v %v", v, ok)
 	}
 }
 

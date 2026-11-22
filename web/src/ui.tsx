@@ -1,4 +1,5 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ApiError, get, Job } from './api';
 
 const P: Record<string, ReactNode> = {
@@ -155,13 +156,16 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
-  return (
+  // Rendered on <body> so page layout rules (such as the content width cap)
+  // can never shrink the backdrop.
+  return createPortal(
     <div className="modal-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={'card modal' + (wide ? ' wide' : '')}>
         <div className="ch"><h3>{title}</h3><button className="btn s ghost" onClick={onClose}><Icon name="x" size={14} /></button></div>
         <div className="cb">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

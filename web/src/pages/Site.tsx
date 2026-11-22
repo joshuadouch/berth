@@ -46,7 +46,7 @@ export default function SitePage() {
             {s.status === 'error' && <button className="btn white" onClick={() => startJob(post('/sites/' + s.id + '/retry'), 'Retrying')}><Icon name="sync" />Retry</button>}
             {d.data.cloudflare && s.status === 'active' && <button className="btn light" onClick={purge} title="Clear Cloudflare's cache for this site's domains"><Icon name="cloud" />Clear cache</button>}
             <a className="btn light" href={siteURL(s)} target="_blank" rel="noreferrer"><Icon name="ext" />Visit site</a>
-            {s.type === 'wordpress' && s.status === 'active' && <a className="btn white" href={siteURL(s) + '/wp-admin/'} target="_blank" rel="noreferrer"><Icon name="wp" />WP admin</a>}
+            {s.type === 'wordpress' && s.status === 'active' && <WPAdminButton site={s} />}
           </div>
         </div>
         <div className="herostats">
@@ -445,4 +445,26 @@ function ActivityTab({ d, open }: { d: SiteDetail; open: (id: number) => void })
       </div>
     </div>
   );
+}
+
+// WPAdminButton opens WP admin already logged in, through a single-use link.
+// The tab opens straight away (so pop-up blockers allow it) and goes to the
+// link once Berth has made it.
+function WPAdminButton({ site }: { site: Site }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const open = async () => {
+    const w = window.open('', '_blank');
+    setBusy(true);
+    try {
+      const r = await post<{ url: string; user: string }>('/sites/' + site.id + '/wp/login');
+      if (w) { w.opener = null; w.location.href = r.url; } else window.location.href = r.url;
+    } catch (e) {
+      w?.close();
+      toast((e as Error).message, true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <button className="btn white" onClick={open} disabled={busy} title="Opens WP admin logged in, no password needed"><Icon name="wp" />{busy ? 'Opening…' : 'WP admin'}</button>;
 }
