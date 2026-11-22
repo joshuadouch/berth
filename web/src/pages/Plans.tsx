@@ -4,7 +4,7 @@ import { Badge, ErrorBox, Field, Icon, Loading, Modal, Toggle, useLoad, useToast
 
 type PlanView = Plan & { accounts: number };
 
-const blank: Plan = { id: '', name: '', max_sites: 5, disk_mb: 10240, dns_zones: 5, max_domains: 5, memory_mb: 256, workers: 5, upload_mb: 64, db_connections: 20, allow_shell: false, no_sftp: false };
+const blank: Plan = { id: '', name: '', max_sites: 5, disk_mb: 10240, dns_zones: 5, max_domains: 5, memory_mb: 256, workers: 5, upload_mb: 64, db_connections: 20, cpu_percent: 0, ram_mb: 0, max_processes: 0, allow_shell: false, no_sftp: false };
 
 export const limit = (n: number, unit = '') => (n ? n + unit : 'Unlimited');
 export const mbLabel = (n: number) => (!n ? 'Unlimited' : n >= 1024 && n % 1024 === 0 ? n / 1024 + ' GB' : n + ' MB');
@@ -28,7 +28,7 @@ export default function Plans() {
       <div className="card">
         {data.length === 0 ? <div className="empty"><p style={{ marginBottom: 14 }}>No plans yet.</p><button className="btn p" onClick={() => setEdit({ ...blank })}><Icon name="plus" />Create a plan</button></div> : (
           <div className="tscroll"><table>
-            <thead><tr><th>Plan</th><th>Sites</th><th>Disk</th><th>Domains per site</th><th>PHP per site</th><th>DNS domains</th><th>Accounts</th><th></th></tr></thead>
+            <thead><tr><th>Plan</th><th>Sites</th><th>Disk</th><th>Domains per site</th><th>PHP per site</th><th>DNS domains</th><th>CPU · memory</th><th>Accounts</th><th></th></tr></thead>
             <tbody>{data.map((p) => (
               <tr key={p.id} className="click" onClick={() => setEdit(p)}>
                 <td><b>{p.name}</b>{p.allow_shell && <> <Badge kind="a">shell</Badge></>}</td>
@@ -37,6 +37,7 @@ export default function Plans() {
                 <td>{limit(p.max_domains)}</td>
                 <td className="muted">{mbLabel(p.memory_mb)} · {limit(p.workers, ' workers')}</td>
                 <td>{limit(p.dns_zones)}</td>
+                <td className="muted">{p.cpu_percent || p.ram_mb ? `${p.cpu_percent ? p.cpu_percent + '%' : '–'} · ${p.ram_mb ? mbLabel(p.ram_mb) : '–'}` : '—'}</td>
                 <td>{p.accounts}</td>
                 <td style={{ textAlign: 'right' }}>{p.accounts === 0 && <button className="btn s ghost" onClick={(e) => { e.stopPropagation(); remove(p); }}>Delete</button>}</td>
               </tr>
@@ -74,7 +75,11 @@ function PlanModal({ plan, onClose }: { plan: Plan; onClose: (saved: boolean) =>
         {num('max_sites', 'Sites')}
         {num('disk_mb', 'Disk (MB)', 'Files and databases of all sites. Over it, no new sites or uploads.')}
         {num('dns_zones', 'DNS domains', 'With the DNS hosting plugin.')}
+        {num('cpu_percent', 'CPU (%)', '100 is one core, for all of the account\'s PHP together.')}
+        {num('ram_mb', 'Memory (MB)', 'For all of the account\'s PHP together.')}
+        {num('max_processes', 'Processes')}
       </div>
+      {(f.cpu_percent > 0 || f.ram_mb > 0 || f.max_processes > 0) && <small className="help" style={{ display: 'block', marginTop: -6, marginBottom: 12 }}>With any of these, the account's sites run in PHP-FPM processes of their own, in a systemd slice that holds the limits.</small>}
       <div className="navlabel" style={{ padding: '6px 0 10px' }}>Per site (0 = server default or unlimited)</div>
       <div className="grid3">
         {num('max_domains', 'Domains', 'The main domain plus other domains.')}
@@ -109,6 +114,7 @@ export function UsageCard({ u, title = 'Plan' }: { u: PlanUsage; title?: string 
         {p && <>
           <div>Per site</div><div className="muted">{limit(p.max_domains, ' domains')} · {mbLabel(p.memory_mb)} PHP memory · {limit(p.workers, ' workers')} · {mbLabel(p.upload_mb)} uploads</div>
           {p.dns_zones > 0 && <><div>DNS domains</div><div>{p.dns_zones}</div></>}
+          {(p.cpu_percent > 0 || p.ram_mb > 0) && <><div>Resources</div><div className="muted">{p.cpu_percent ? p.cpu_percent + '% CPU' : 'any CPU'} · {p.ram_mb ? mbLabel(p.ram_mb) + ' memory' : 'any memory'} for all sites</div></>}
         </>}
       </div>
     </div></div>

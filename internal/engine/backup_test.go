@@ -22,6 +22,7 @@ func testEngine(t *testing.T) *Engine {
 	cfg.PHP.PoolDir = filepath.Join(dir, "php", "{v}")
 	cfg.DryRun = true
 	cfg.ACMEDir = filepath.Join(dir, "acme")
+	cfg.PHP.IsolatedDir, cfg.SystemdDir = filepath.Join(dir, "fpm"), filepath.Join(dir, "systemd")
 	_ = os.MkdirAll(cfg.DataDir, 0o755)
 	st, err := store.Open(filepath.Join(cfg.DataDir, "berth.db"))
 	if err != nil {

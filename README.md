@@ -22,6 +22,14 @@ functions (`exec`, `system`, `proc_open` and the like) unless they allow them,
 and can turn SFTP off. Changing a plan, or an account's plan, applies to its
 existing sites at once. Accounts without a plan have no limits.
 
+A plan can also cap **CPU, memory and processes** for all of an account's PHP
+together. Its accounts then run PHP in PHP-FPM masters of their own
+(`berth-fpm@<account>-<version>.service`, config in `/etc/berth/fpm`) inside a
+systemd slice (`berth-acct-<account>.slice`) that holds the limits, so one busy
+customer cannot starve the others. The socket names stay the same, so nginx is
+untouched. In an LXC the limits need the cgroup controllers Proxmox delegates
+by default (cgroup v2); check with `systemctl status berth-acct-<account>.slice`.
+
 - **One-click WordPress.** Enter a domain and Berth creates the site, its
   database, installs WordPress, sets pretty permalinks and shows the admin
   password once.

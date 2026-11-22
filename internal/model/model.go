@@ -664,10 +664,19 @@ type Plan struct {
 	Workers       int `json:"workers"`     // PHP-FPM max_children
 	UploadMB      int `json:"upload_mb"`
 	DBConnections int `json:"db_connections"` // MariaDB connections per site
+	// CPU, memory and process caps for all of the account's PHP together.
+	// Any of them gives the account PHP-FPM processes of its own in a
+	// systemd slice.
+	CPUPercent   int `json:"cpu_percent"` // 100 = one core
+	RAMMB        int `json:"ram_mb"`
+	MaxProcesses int `json:"max_processes"`
 	// AllowShell leaves exec(), system() and friends on in PHP.
 	AllowShell bool `json:"allow_shell"`
 	NoSFTP     bool `json:"no_sftp"`
 }
+
+// Isolated reports whether the plan's accounts get PHP processes of their own.
+func (p Plan) Isolated() bool { return p.CPUPercent > 0 || p.RAMMB > 0 || p.MaxProcesses > 0 }
 
 // ShellFunctions are switched off in PHP for plans without AllowShell.
 const ShellFunctions = "exec,passthru,shell_exec,system,proc_open,popen,proc_nice,pcntl_exec,pcntl_fork,dl,posix_kill,posix_setuid,posix_setgid"
@@ -678,13 +687,16 @@ func (p *Plan) Normalize() error {
 	if p.Name == "" || len(p.Name) > 60 {
 		return errors.New("plan name must be 1-60 characters")
 	}
-	for _, n := range []int{p.MaxSites, p.DiskMB, p.DNSZones, p.MaxDomains, p.MemoryMB, p.Workers, p.UploadMB, p.DBConnections} {
+	for _, n := range []int{p.MaxSites, p.DiskMB, p.DNSZones, p.MaxDomains, p.MemoryMB, p.Workers, p.UploadMB, p.DBConnections, p.CPUPercent, p.RAMMB, p.MaxProcesses} {
 		if n < 0 {
 			return errors.New("limits cannot be negative")
 		}
 	}
 	if p.MemoryMB != 0 && p.MemoryMB < 32 {
 		return errors.New("PHP memory must be at least 32 MB")
+	}
+	if p.RAMMB != 0 && p.RAMMB < 64 || p.MaxProcesses != 0 && p.MaxProcesses < 10 {
+		return errors.New("an account needs at least 64 MB of memory and 10 processes")
 	}
 	if p.Workers > 200 || p.UploadMB > 10240 {
 		return errors.New("a limit is out of range")

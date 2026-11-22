@@ -25,6 +25,7 @@ func testServer(t *testing.T) (*httptest.Server, *store.Store) {
 	cfg.DataDir, cfg.SitesDir, cfg.LogDir = dir, filepath.Join(dir, "sites"), filepath.Join(dir, "log")
 	cfg.Nginx.ConfDir = filepath.Join(dir, "nginx")
 	cfg.PHP.PoolDir = filepath.Join(dir, "php", "{v}")
+	cfg.PHP.IsolatedDir, cfg.SystemdDir = filepath.Join(dir, "fpm"), filepath.Join(dir, "systemd")
 	cfg.DryRun = true
 	st, err := store.Open(filepath.Join(dir, "berth.db"))
 	if err != nil {
