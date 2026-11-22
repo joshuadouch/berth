@@ -257,6 +257,7 @@ func (e *Engine) UpdateSite(ctx context.Context, in model.Site, replaceURLs bool
 	next.UploadMB, next.MemoryMB, next.MaxChildren = in.UploadMB, in.MemoryMB, in.MaxChildren
 	next.Backups, next.Notes = in.Backups, in.Notes
 	next.SFTP.Enabled, next.SFTP.Keys = in.SFTP.Enabled, in.SFTP.Keys
+	next.PHP, next.NoMonitor = in.PHP, in.NoMonitor
 	if next.Type == model.TypeWordPress {
 		next.FrontController = true
 	}
@@ -352,6 +353,7 @@ func (e *Engine) DeleteSite(ctx context.Context, name string, finalBackup bool, 
 		if err := e.removeUser(ctx, s); err != nil {
 			logf("Could not remove the user: %v", err)
 		}
+		e.Store.DeleteSiteStats(ctx, s.Name)
 		return e.Store.DeleteSite(ctx, s.Name)
 	})
 }

@@ -173,30 +173,6 @@ func (e *Engine) WordPressInfo(ctx context.Context, s model.Site) WPInfo {
 	return info
 }
 
-// UpdateWordPress updates core, plugins, themes and translations.
-func (e *Engine) UpdateWordPress(ctx context.Context, s model.Site, logf Logf) error {
-	steps := [][]string{
-		{"core", "update"},
-		{"core", "update-db"},
-		{"plugin", "update", "--all"},
-		{"theme", "update", "--all"},
-		{"language", "core", "update"},
-	}
-	for _, st := range steps {
-		logf("wp %s", strings.Join(st, " "))
-		out, err := e.wp(ctx, s, "", st...)
-		for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
-			if l = strings.TrimSpace(l); l != "" {
-				logf("  %s", l)
-			}
-		}
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // ResetWPAdmin sets a new password for a WordPress user (the installer's admin by default).
 func (e *Engine) ResetWPAdmin(ctx context.Context, s model.Site, login string) (string, error) {
 	if login == "" && s.WP != nil {
@@ -256,4 +232,52 @@ func (e *Engine) RunWPCron(ctx context.Context) {
 		}
 		cancel()
 	}
+}
+
+// SearchReplaceOptions is a database search and replace.
+type SearchReplaceOptions struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	DryRun bool   `json:"dry_run"`
+	// GUIDs also changes post GUIDs (normally left alone).
+	GUIDs bool `json:"guids"`
+	// Backup takes a backup before a real run.
+	Backup bool `json:"backup"`
+}
+
+// Validate checks the search and replacement text.
+func (o SearchReplaceOptions) Validate() error {
+	if o.From == "" {
+		return fmt.Errorf("enter the text to search for")
+	}
+	if o.From == o.To {
+		return fmt.Errorf("the search and replacement are the same")
+	}
+	if strings.ContainsAny(o.From+o.To, "\x00") || len(o.From) > 2000 || len(o.To) > 2000 {
+		return fmt.Errorf("search text is too long or has a null byte")
+	}
+	if strings.HasPrefix(o.From, "-") || strings.HasPrefix(o.To, "-") {
+		return fmt.Errorf("WP-CLI would read text starting with - as an option; include the character before it")
+	}
+	return nil
+}
+
+// WPSearchReplace runs wp search-replace, which keeps serialized data intact.
+func (e *Engine) WPSearchReplace(ctx context.Context, s model.Site, o SearchReplaceOptions, logf Logf) (string, error) {
+	if err := o.Validate(); err != nil {
+		return "", err
+	}
+	args := []string{"search-replace", o.From, o.To, "--all-tables-with-prefix", "--precise",
+		"--skip-plugins", "--skip-themes", "--report-changed-only"}
+	if !o.GUIDs {
+		args = append(args, "--skip-columns=guid")
+	}
+	if o.DryRun {
+		args = append(args, "--dry-run")
+	}
+	if logf != nil {
+		logf("wp search-replace %q → %q%s", o.From, o.To, map[bool]string{true: " (dry run)", false: ""}[o.DryRun])
+	}
+	out, err := e.wp(ctx, s, "", args...)
+	return strings.TrimSpace(out), err
 }

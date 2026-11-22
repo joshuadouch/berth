@@ -51,7 +51,24 @@ site.
 - **Plugins.** Extra features you switch on from the Plugins page. The first is
   **Mailcow**: mail domains, mailboxes and aliases, with outgoing mail sent
   through Amazon SES (see below).
-- PHP version, memory, upload limit and workers per site; extra domains with an
+- **Analytics.** Requests, visitors, bandwidth, top pages, referrers, browsers,
+  404s and server errors per site, counted from the nginx access log.
+- **Performance.** Average and slowest requests, the slowest pages, PHP stack
+  traces of requests that run for 5 seconds or more (naming the plugin or theme
+  responsible) and the site's slow database queries.
+- **Resources.** CPU and memory of each site's processes, and disk and database
+  size, over 30 days.
+- **Uptime checks.** Every live site is requested once a minute through its
+  public address; outages are logged in Activity, with uptime history and
+  response times on the site's Analytics tab.
+- **Security.** A daily check of WordPress, plugins and themes against the free
+  [WPVulnerability](https://www.wpvulnerability.net) database.
+- **Safe updates.** WordPress updates (now or on a schedule per site) back up
+  first, check the home and login pages afterwards and roll back if they broke.
+- **Search and replace** in a WordPress database, with a preview, through WP-CLI.
+- **Clear Cloudflare's cache** for a site's domains in one click.
+- PHP version, memory, upload limit, workers, execution time, input vars and any
+  other `php.ini` setting per site; extra domains with an
   optional redirect to the main one; take a site offline with a 503 page.
 
 ## Install on Proxmox VE
@@ -147,6 +164,22 @@ browsing a backup that is only off-site downloads it first.
 
 Turn on **Refuse visitors that skip the load balancer** to answer 403 to any
 request that does not come from a trusted proxy.
+
+## Monitoring and analytics
+
+- Analytics read `/var/log/berth/<site>/access.log` every five minutes. Requests
+  Cloudflare serves from its cache never reach the server and are not counted.
+- PHP-FPM writes a stack trace to `/srv/sites/<site>/logs/php-slow.log` for any
+  request still running after 5 seconds.
+- Berth turns on MariaDB's slow query log (`/var/log/mysql/mariadb-slow.log`,
+  queries of a second or more) and checks every hour that it is still on.
+- Uptime checks use each site's public address, so they test DNS, Halyard and
+  Cloudflare too. When a check fails but the site answers locally, the outage
+  says so. Turn checks off per site on its Settings tab, or for every site in
+  **Settings → Monitoring and Cloudflare**.
+- History is kept for 30 days (uptime and hourly traffic for 90).
+- **Clear cache** needs a Cloudflare API token with **Zone → Zone → Read** and
+  **Zone → Cache Purge → Purge**, saved in **Settings → Monitoring and Cloudflare**.
 
 ## Sites on disk
 

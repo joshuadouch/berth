@@ -3,7 +3,6 @@ package api
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -17,8 +16,10 @@ import (
 
 type siteRow struct {
 	model.Site
-	Usage      engine.Usage  `json:"usage"`
-	LastBackup *model.Backup `json:"last_backup"`
+	Usage      engine.Usage        `json:"usage"`
+	LastBackup *model.Backup       `json:"last_backup"`
+	Uptime     *engine.UptimeState `json:"uptime"`
+	Vulns      int                 `json:"vulns"`
 }
 
 func (s *Server) listSites(w http.ResponseWriter, r *http.Request) {
@@ -35,9 +36,15 @@ func (s *Server) listSites(w http.ResponseWriter, r *http.Request) {
 			last[backups[i].Site] = &backups[i]
 		}
 	}
+	states := s.Engine.UptimeStates(r.Context(), sites)
+	vulns := s.Engine.VulnCounts(r.Context(), sites)
 	out := make([]siteRow, 0, len(sites))
 	for _, site := range sites {
-		out = append(out, siteRow{Site: site, Usage: usage[site.Name], LastBackup: last[site.Name]})
+		row := siteRow{Site: site, Usage: usage[site.Name], LastBackup: last[site.Name], Vulns: vulns[site.Name]}
+		if st, ok := states[site.Name]; ok {
+			row.Uptime = &st
+		}
+		out = append(out, row)
 	}
 	writeJSON(w, 200, out)
 }
@@ -59,10 +66,16 @@ func (s *Server) getSite(w http.ResponseWriter, r *http.Request) {
 	backups, _ := s.Engine.Backups(r.Context(), site.Name)
 	jobs, _ := s.Store.Jobs(r.Context(), site.Name, 15)
 	events, _ := s.Store.Events(r.Context(), site.Name, 30)
+	st, _ := s.Store.Settings(r.Context())
+	var uptime *engine.UptimeState
+	if u, ok := s.Engine.UptimeStates(r.Context(), []model.Site{site})[site.Name]; ok {
+		uptime = &u
+	}
 	writeJSON(w, 200, map[string]any{
 		"site": site, "usage": s.Engine.SiteUsage()[site.Name], "backups": backups, "jobs": jobs, "events": events,
 		"dir": s.Engine.Paths().SiteDir(site.Name), "user": site.User(), "socket": s.Cfg.Socket(site.Name),
-		"sftp_available": s.Cfg.SFTP.Enabled,
+		"sftp_available": s.Cfg.SFTP.Enabled, "cloudflare": st.CloudflareToken != "", "uptime": uptime,
+		"vulns": s.Engine.VulnCounts(r.Context(), []model.Site{site})[site.Name],
 	})
 }
 
@@ -268,15 +281,10 @@ func (s *Server) wpUpdate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	backup := r.URL.Query().Get("backup") != "0"
+	q := r.URL.Query()
+	plan := engine.UpdatePlan{Core: true, Plugins: true, Themes: true, Backup: q.Get("backup") != "0", Rollback: q.Get("rollback") != "0"}
 	id, err := s.Engine.StartJob(site.Name, "wp-update", "Update WordPress on "+site.Domain, func(ctx context.Context, logf engine.Logf) error {
-		if backup {
-			logf("Backing up first")
-			if _, err := s.Engine.Backup(ctx, site, logf); err != nil {
-				return fmt.Errorf("backup failed, so nothing was updated: %w", err)
-			}
-		}
-		return s.Engine.UpdateWordPress(ctx, site, logf)
+		return s.Engine.SafeUpdate(ctx, site, plan, logf)
 	})
 	if err != nil {
 		writeErr(w, 500, err.Error())

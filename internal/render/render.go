@@ -4,6 +4,7 @@ package render
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -234,7 +235,6 @@ func Vhost(p Paths, st model.Settings, s model.Site) string {
 	}
 	w("    location ~* \\.(?:css|js|mjs|jpe?g|png|gif|webp|avif|svg|ico|woff2?|ttf|otf|eot|mp4|webm|mp3|pdf)$ {")
 	w("        expires 30d;")
-	w("        access_log off;")
 	if s.FrontController || s.Type == model.TypeWordPress {
 		w("        try_files $uri /index.php?$args;")
 	} else {
@@ -296,7 +296,33 @@ func Pool(p Paths, s model.Site) string {
 	w("php_admin_value[memory_limit] = %dM", s.MemoryMB)
 	w("php_admin_value[upload_max_filesize] = %dM", s.UploadMB)
 	w("php_admin_value[post_max_size] = %dM", s.UploadMB)
-	w("php_admin_value[max_execution_time] = 300")
-	w("php_admin_value[max_input_vars] = 5000")
+	ps := s.PHP.WithDefaults()
+	w("php_admin_value[max_execution_time] = %d", ps.MaxExecution)
+	w("php_admin_value[max_input_vars] = %d", ps.MaxInputVars)
+	w("php_admin_value[max_input_time] = %d", ps.MaxInputTime)
+	w("; Requests slower than 5 seconds log a PHP stack trace (Performance tab).")
+	w("request_slowlog_timeout = 5s")
+	w("slowlog = %s/logs/php-slow.log", dir)
+	if lines, err := model.ParsePHPCustom(ps.Custom); err == nil && len(lines) > 0 {
+		w("; Custom settings from the site's Settings tab.")
+		for _, l := range lines {
+			switch strings.ToLower(l.Value) {
+			case "on", "off", "true", "false", "yes", "no":
+				w("php_admin_flag[%s] = %s", l.Key, strings.ToLower(l.Value))
+			default:
+				w("php_admin_value[%s] = %s", l.Key, iniValue(l.Value))
+			}
+		}
+	}
 	return b.String()
+}
+
+var plainINI = regexp.MustCompile(`^[A-Za-z0-9_./:,-]*$`)
+
+// iniValue quotes a php.ini value unless it is plain.
+func iniValue(v string) string {
+	if plainINI.MatchString(v) {
+		return v
+	}
+	return `"` + v + `"`
 }

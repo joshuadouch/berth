@@ -3,7 +3,7 @@ import { exposureLabel, get, HalyardInfo, post, put, Settings as S, vipLabel } f
 import { Badge, Chips, ErrorBox, Field, Loading, Toggle, useLoad, useToast } from '../ui';
 import type { Me } from '../App';
 
-interface SettingsView { settings: S; halyard_token_set: boolean; s3_secret_set: boolean; s3_error: string; installed_php: string[]; php_versions: string[] }
+interface SettingsView { settings: S; halyard_token_set: boolean; s3_secret_set: boolean; cloudflare_token_set: boolean; s3_error: string; installed_php: string[]; php_versions: string[] }
 
 export default function Settings({ me }: { me: Me }) {
   const { data, error, reload } = useLoad(() => get<SettingsView>('/settings'));
@@ -60,10 +60,32 @@ export default function Settings({ me }: { me: Me }) {
             </div>
             <Field label="Allowed emails" help={`Your account email (${me.user.email || 'not set'}) is always allowed.`}><Chips values={f.access_emails ?? []} onChange={(v) => set({ access_emails: v })} placeholder="you@example.com" /></Field>
           </div></div>
+          <MonitoringCard f={f} set={set} tokenSet={data.cloudflare_token_set} />
           <Account me={me} />
         </div>
       </div>
     </>
+  );
+}
+
+function MonitoringCard({ f, set, tokenSet }: { f: S; set: (p: Partial<S>) => void; tokenSet: boolean }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const test = () => {
+    setBusy(true);
+    post<{ message: string }>('/settings/cloudflare/test', { token: f.cloudflare_token ?? '' }).then((r) => toast(r.message)).catch((e) => toast(e.message, true)).finally(() => setBusy(false));
+  };
+  return (
+    <div className="card"><div className="ch"><h3>Monitoring and Cloudflare</h3></div><div className="cb">
+      <Toggle on={!f.no_uptime} onChange={(v) => set({ no_uptime: !v })} label="Uptime checks" help="Request every live site once a minute and log outages in Activity. Turn off single sites on their Settings tab." />
+      <Toggle on={!f.no_vuln_scan} onChange={(v) => set({ no_vuln_scan: !v })} label="Daily vulnerability check" help="Compare WordPress, plugins and themes with the free WPVulnerability database once a day." />
+      <Field label="Cloudflare API token" help={<>For the <b>Clear cache</b> button on each site. Create a token with <b>Zone → Zone → Read</b> and <b>Zone → Cache Purge → Purge</b> on your zones.{tokenSet && ' A token is saved; leave empty to keep it, or enter - to remove it.'}</>}>
+        <div className="row" style={{ gap: 8 }}>
+          <input className="input mono" style={{ flex: 1 }} type="password" autoComplete="off" value={f.cloudflare_token ?? ''} placeholder={tokenSet ? '••••••••' : ''} onChange={(e) => set({ cloudflare_token: e.target.value })} />
+          <button className="btn" type="button" disabled={busy || (!tokenSet && !f.cloudflare_token)} onClick={test}>{busy ? 'Testing…' : 'Test'}</button>
+        </div>
+      </Field>
+    </div></div>
   );
 }
 

@@ -118,8 +118,141 @@ type Site struct {
 	StatusError string      `json:"status_error"`
 	Notes       string      `json:"notes"`
 	// NginxCustom is extra nginx directives for the site's server block.
-	NginxCustom string    `json:"nginx_custom,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	NginxCustom string `json:"nginx_custom,omitempty"`
+	// PHP holds extra PHP settings for the site's FPM pool.
+	PHP PHPSettings `json:"php"`
+	// AutoUpdate updates WordPress on a schedule.
+	AutoUpdate AutoUpdate `json:"auto_update"`
+	// NoMonitor turns off uptime checks for the site.
+	NoMonitor bool      `json:"no_monitor"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// PHPSettings are per-site PHP options beyond memory and uploads.
+type PHPSettings struct {
+	MaxExecution int `json:"max_execution"`  // seconds, default 300
+	MaxInputVars int `json:"max_input_vars"` // default 5000
+	MaxInputTime int `json:"max_input_time"` // seconds, default 300 (-1 = max_execution)
+	// Custom is extra php.ini lines ("key = value"), one per line.
+	Custom string `json:"custom,omitempty"`
+}
+
+// AutoUpdate is a WordPress site's update schedule.
+type AutoUpdate struct {
+	Enabled bool   `json:"enabled"`
+	Day     string `json:"day"`  // "daily" or mon..sun
+	Time    string `json:"time"` // HH:MM local time
+	Core    bool   `json:"core"`
+	Plugins bool   `json:"plugins"`
+	Themes  bool   `json:"themes"`
+	// Rollback restores the pre-update backup when the site breaks.
+	Rollback bool `json:"rollback"`
+}
+
+// AutoUpdateDays are the accepted values of AutoUpdate.Day.
+var AutoUpdateDays = []string{"daily", "mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+
+// PHPManagedKeys are php.ini settings Berth sets for isolation; custom lines
+// cannot change them.
+var PHPManagedKeys = map[string]bool{
+	"open_basedir": true, "upload_tmp_dir": true, "sys_temp_dir": true, "session.save_path": true,
+	"error_log": true, "memory_limit": true, "upload_max_filesize": true, "post_max_size": true,
+	"max_execution_time": true, "max_input_vars": true, "max_input_time": true,
+}
+
+var iniKeyRe = regexp.MustCompile(`^[a-z][a-z0-9_.]{1,79}$`)
+
+// INILine is one custom php.ini setting.
+type INILine struct{ Key, Value string }
+
+// ParsePHPCustom parses custom php.ini lines. Blank lines and ; or # comments
+// are skipped.
+func ParsePHPCustom(text string) ([]INILine, error) {
+	var out []INILine
+	for i, l := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		l = strings.TrimSpace(l)
+		if l == "" || strings.HasPrefix(l, ";") || strings.HasPrefix(l, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(l, "=")
+		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		if !ok || !iniKeyRe.MatchString(k) {
+			return nil, fmt.Errorf("PHP settings line %d should look like key = value", i+1)
+		}
+		if PHPManagedKeys[k] {
+			return nil, fmt.Errorf("PHP setting %s is set by Berth; use the fields above", k)
+		}
+		v = strings.Trim(v, `"'`)
+		if strings.ContainsAny(v, "\x00\n\"") || len(v) > 1024 {
+			return nil, fmt.Errorf("PHP setting %s has a value Berth cannot write", k)
+		}
+		out = append(out, INILine{k, v})
+	}
+	return out, nil
+}
+
+// WithDefaults fills unset values (sites saved before these settings existed).
+func (p PHPSettings) WithDefaults() PHPSettings {
+	_ = p.normalize()
+	return p
+}
+
+func (p *PHPSettings) normalize() error {
+	if p.MaxExecution <= 0 {
+		p.MaxExecution = 300
+	}
+	if p.MaxExecution > 3600 {
+		return fmt.Errorf("max execution time is at most 3600 seconds")
+	}
+	if p.MaxInputVars <= 0 {
+		p.MaxInputVars = 5000
+	}
+	if p.MaxInputVars > 100000 {
+		return fmt.Errorf("max input vars is at most 100000")
+	}
+	if p.MaxInputTime == 0 {
+		p.MaxInputTime = 300
+	}
+	if p.MaxInputTime < -1 || p.MaxInputTime > 3600 {
+		return fmt.Errorf("max input time must be -1 or up to 3600 seconds")
+	}
+	p.Custom = strings.TrimSpace(p.Custom)
+	if len(p.Custom) > 16<<10 {
+		return fmt.Errorf("custom PHP settings are limited to 16 KB")
+	}
+	_, err := ParsePHPCustom(p.Custom)
+	return err
+}
+
+func (a *AutoUpdate) normalize() error {
+	if a.Day == "" {
+		a.Day = "daily"
+	}
+	ok := false
+	for _, d := range AutoUpdateDays {
+		ok = ok || d == a.Day
+	}
+	if !ok {
+		return fmt.Errorf("unknown update day %q", a.Day)
+	}
+	if a.Time == "" {
+		a.Time = "04:00"
+	}
+	if !timeRe.MatchString(a.Time) {
+		return fmt.Errorf("update time must look like 04:00")
+	}
+	if a.Enabled && !a.Core && !a.Plugins && !a.Themes {
+		return fmt.Errorf("choose what automatic updates should update")
+	}
+	return nil
+}
+
+// Due reports whether the schedule runs at t (to the minute).
+func (a AutoUpdate) Due(t time.Time) bool {
+	if !a.Enabled || t.Format("15:04") != a.Time {
+		return false
+	}
+	return a.Day == "daily" || strings.ToLower(t.Format("Mon")) == a.Day
 }
 
 // User is the Linux user that owns the site's files and runs its PHP.
@@ -254,7 +387,13 @@ func (s *Site) Normalize() error {
 		keys = append(keys, k)
 	}
 	s.SFTP.Keys = keys
-	return nil
+	if err := s.PHP.normalize(); err != nil {
+		return err
+	}
+	if s.Type != TypeWordPress {
+		s.AutoUpdate = AutoUpdate{}
+	}
+	return s.AutoUpdate.normalize()
 }
 
 // Settings are the panel-wide options edited on the Settings page.
@@ -284,6 +423,13 @@ type Settings struct {
 
 	// S3 copies every backup to S3-compatible storage (Backblaze B2, R2...).
 	S3 S3Settings `json:"s3"`
+
+	// CloudflareToken may purge Cloudflare's cache (Zone > Cache Purge).
+	CloudflareToken string `json:"cloudflare_token,omitempty"`
+	// NoUptime turns off uptime checks for every site.
+	NoUptime bool `json:"no_uptime"`
+	// NoVulnScan turns off the daily WordPress vulnerability check.
+	NoVulnScan bool `json:"no_vuln_scan"`
 }
 
 // S3Settings is an off-site copy of backups.

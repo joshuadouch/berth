@@ -8,6 +8,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joshuadouch/berth/internal/engine"
 	"github.com/joshuadouch/berth/internal/model"
@@ -36,7 +37,13 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	jobs, _ := s.Store.Jobs(ctx, "", 8)
 	events, _ := s.Store.Events(ctx, "", 12)
 	st, _ := s.Store.Settings(ctx)
+	since := time.Now().Add(-24 * time.Hour)
+	traffic, _ := s.Store.Traffic(ctx, "", since.Unix()/3600*3600)
+	uptime, _ := s.Store.UptimeSince(ctx, since.Unix())
+	res, _ := s.Engine.ResourceHistory(ctx, "", 24*time.Hour)
 	writeJSON(w, 200, map[string]any{
+		"traffic": traffic, "uptime": uptime, "uptime_state": s.Engine.UptimeStates(ctx, sites),
+		"vulns": s.Engine.VulnCounts(ctx, sites), "resources": res,
 		"sites": len(sites), "counts": counts, "attention": problems,
 		"services": s.Engine.Services(ctx), "disks": s.Engine.Disks(ctx), "usage": s.Engine.SiteUsage(),
 		"backups": len(backups), "backup_bytes": backupBytes, "jobs": jobs, "events": events,
@@ -226,8 +233,9 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	tokenSet := st.Halyard.Token != ""
 	secretSet := st.S3.SecretKey != ""
-	st.Halyard.Token, st.S3.SecretKey = "", ""
-	writeJSON(w, 200, map[string]any{"settings": st, "halyard_token_set": tokenSet, "s3_secret_set": secretSet,
+	cfSet := st.CloudflareToken != ""
+	st.Halyard.Token, st.S3.SecretKey, st.CloudflareToken = "", "", ""
+	writeJSON(w, 200, map[string]any{"settings": st, "halyard_token_set": tokenSet, "s3_secret_set": secretSet, "cloudflare_token_set": cfSet,
 		"s3_error":      s.Engine.RemoteError(r.Context()),
 		"installed_php": s.Engine.InstalledPHP(), "php_versions": model.PHPVersions})
 }
@@ -251,6 +259,13 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if st.S3.SecretKey == "" {
 		st.S3.SecretKey = cur.S3.SecretKey
 	}
+	switch st.CloudflareToken {
+	case "":
+		st.CloudflareToken = cur.CloudflareToken
+	case "-":
+		st.CloudflareToken = ""
+	}
+	st.CloudflareToken = strings.TrimSpace(st.CloudflareToken)
 	if err := st.Normalize(); err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -270,7 +285,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Store.AddEvent(r.Context(), "info", "settings", "", currentUser(r).Username+" changed settings")
-	st.Halyard.Token, st.S3.SecretKey = "", ""
+	st.Halyard.Token, st.S3.SecretKey, st.CloudflareToken = "", "", ""
 	writeJSON(w, 200, st)
 }
 

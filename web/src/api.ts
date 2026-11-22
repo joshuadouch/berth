@@ -9,12 +9,24 @@ export interface Site {
   redirect_aliases: boolean; front_controller: boolean; https: boolean; enabled: boolean; upload_mb: number; memory_mb: number;
   max_children: number; backups: boolean; db?: Database; wp?: WordPress; sftp: SFTP; halyard: HalyardLink; status: string;
   status_error: string; notes: string; created_at: string; nginx_custom?: string;
+  php: PHPSettings; auto_update: AutoUpdate; no_monitor: boolean;
   import?: { files: string; files_name: string; db: string; db_name: string };
 }
+export interface PHPSettings { max_execution: number; max_input_vars: number; max_input_time: number; custom?: string }
+export interface AutoUpdate { enabled: boolean; day: string; time: string; core: boolean; plugins: boolean; themes: boolean; rollback: boolean }
+export interface UptimeState { down: boolean; since: string; fails: number; last_error?: string; last_check: string; last_ms: number }
+export interface Vuln {
+  kind: 'core' | 'plugin' | 'theme'; slug: string; name: string; version: string; title: string; severity: string; score: number;
+  fixed_in: string; unfixed: boolean; links: string[] | null; ids: string[] | null; update: string; active: boolean;
+}
+export interface VulnReport { checked: string; vulns: Vuln[]; error?: string; items: number }
+export interface TrafficHour { hour: number; requests: number; bytes: number; s2: number; s3: number; s4: number; s5: number; bots: number; ms: number }
+export interface TopEntry { key: string; requests: number; bytes: number; ms: number }
+export interface Metric { time: number; cpu: number; mem: number; disk: number; db: number }
 export interface Usage { files: number; db: number }
 export interface Backup { site: string; file: string; size: number; time: string; local: boolean; remote: boolean }
 export interface FileEntry { name: string; dir: boolean; link?: string; size: number; mode: string; mtime: string }
-export interface SiteRow extends Site { usage: Usage; last_backup: Backup | null }
+export interface SiteRow extends Site { usage: Usage; last_backup: Backup | null; uptime: UptimeState | null; vulns: number }
 export interface Job { id: number; site: string; kind: string; title: string; status: 'running' | 'ok' | 'failed'; log: string; started: string; finished: string; error: string }
 export interface Event { id: number; time: string; level: string; kind: string; site: string; message: string }
 export interface Service { name: string; label: string; active: string }
@@ -35,10 +47,12 @@ export interface Settings {
   access_team: string; access_aud: string; access_emails: string[] | null;
   halyard: HalyardSettings;
   s3: S3Settings;
+  cloudflare_token?: string; no_uptime: boolean; no_vuln_scan: boolean;
 }
 
 export interface SiteDetail {
   site: Site; usage: Usage; backups: Backup[]; jobs: Job[]; events: Event[]; dir: string; user: string; socket: string; sftp_available: boolean;
+  cloudflare: boolean; uptime: UptimeState | null; vulns: number;
 }
 export interface WPInfo {
   version: string; core_update: string; siteurl: string; error?: string; plugin_updates: number; theme_updates: number;
