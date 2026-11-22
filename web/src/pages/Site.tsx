@@ -23,6 +23,7 @@ export default function SitePage() {
   const tab = (sp.get('tab') as Tab) || 'overview';
   const d = useLoad(() => get<SiteDetail>('/sites/' + id), [id], 5000);
   const [job, setJob] = useState<number | null>(null);
+  const [jobsDone, setJobsDone] = useState(0);
   const toast = useToast();
   if (!d.data) return d.error ? <ErrorBox error={d.error} /> : <Loading />;
   const s = d.data.site;
@@ -64,11 +65,11 @@ export default function SitePage() {
       {tab === 'settings' && <SettingsTab s={s} sftp={d.data.sftp_available} onSaved={(j) => { d.reload(); if (j) setJob(j); }} />}
       {tab === 'files' && <FilesTab s={s} />}
       {tab === 'database' && s.db && <DatabaseTab s={s} />}
-      {tab === 'wordpress' && <WordPressTab s={s} startJob={startJob} reload={d.reload} />}
+      {tab === 'wordpress' && <WordPressTab s={s} startJob={startJob} reload={d.reload} jobsDone={jobsDone} />}
       {tab === 'backups' && <BackupsTab s={s} backups={d.data.backups} reload={d.reload} startJob={startJob} />}
       {tab === 'logs' && <LogsTab s={s} />}
       {tab === 'activity' && <ActivityTab d={d.data} open={setJob} />}
-      {job !== null && <Modal title="Job" onClose={() => { setJob(null); d.reload(); }}><JobView id={job} onDone={() => d.reload()} /></Modal>}
+      {job !== null && <Modal title="Job" onClose={() => { setJob(null); d.reload(); }}><JobView id={job} onDone={() => { d.reload(); setJobsDone((n) => n + 1); }} /></Modal>}
     </>
   );
 }
@@ -308,8 +309,9 @@ function DeleteModal({ s, onClose }: { s: Site; onClose: () => void }) {
   );
 }
 
-function WordPressTab({ s, startJob, reload }: { s: Site; startJob: (p: Promise<{ job_id: number }>, m?: string) => void; reload: () => void }) {
-  const info = useLoad(() => get<WPInfo>('/sites/' + s.id + '/wp'), [s.id]);
+function WordPressTab({ s, startJob, reload, jobsDone }: { s: Site; startJob: (p: Promise<{ job_id: number }>, m?: string) => void; reload: () => void; jobsDone: number }) {
+  // Re-read versions after every job (such as an update) finishes.
+  const info = useLoad(() => get<WPInfo>('/sites/' + s.id + '/wp'), [s.id, jobsDone]);
   const [rollback, setRollback] = useState(true);
   const [user, setUser] = useState('');
   const [pw, setPw] = useState<{ user: string; password: string; login_url: string } | null>(null);
@@ -321,7 +323,7 @@ function WordPressTab({ s, startJob, reload }: { s: Site; startJob: (p: Promise<
     <div className="grid2" style={{ alignItems: 'start' }}>
       <div className="stack">
         <div className="card"><div className="ch"><h3>WordPress</h3>
-          {w && <button className="btn s" onClick={info.reload}><Icon name="sync" size={12} />Check again</button>}</div>
+          {w && <button className="btn s" disabled={info.loading} onClick={info.reload}><Icon name="sync" size={12} />{info.loading ? 'Checking…' : 'Check again'}</button>}</div>
           {!w ? (info.error ? <div className="cb"><ErrorBox error={info.error} /></div> : <Loading />) : w.error ? <div className="cb"><div className="err">{w.error}</div></div> : <>
             <div className="cb kv">
               <div>Version</div><div>{w.version} {w.core_update ? <Badge kind="w">{w.core_update} available</Badge> : <Badge kind="g">Up to date</Badge>}</div>

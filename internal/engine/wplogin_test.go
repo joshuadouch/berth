@@ -61,3 +61,16 @@ func TestCleanWPOutput(t *testing.T) {
 		t.Fatalf("clean output changed: %q", got)
 	}
 }
+
+func TestNewestVersion(t *testing.T) {
+	out := "PHP Warning:  The magic method X::__wakeup() must have public visibility in /x.php on line 3\nversion\n6.8.3\n6.7.4\n5.9.12\n"
+	if got := newestVersion(out, "5.9.11"); got != "6.8.3" {
+		t.Fatalf("got %q", got)
+	}
+	if got := newestVersion("Success: WordPress is at the latest version.", "6.8.3"); got != "" {
+		t.Fatalf("got %q", got)
+	}
+	if got := newestVersion("version\n6.8.3\n", "6.8.3"); got != "" {
+		t.Fatalf("same version is not an update: %q", got)
+	}
+}
