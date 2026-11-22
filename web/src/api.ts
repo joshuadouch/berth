@@ -13,6 +13,7 @@ export interface Site {
   import?: { files: string; files_name: string; db: string; db_name: string };
 }
 export interface SiteTLS { status: 'none' | 'pending' | 'active' | 'error' | ''; error?: string; domains?: string[]; issued?: string; expires?: string; fails?: number; next_try?: string }
+export interface BrandSettings { name: string; support_email: string; support_url: string; ipv4: string; ipv6: string }
 export interface ACMESettings { email: string; staging: boolean; off: boolean }
 // Who serves a site to visitors: Berth with Let's Encrypt, a proxy in front, or plain HTTP.
 export type Serve = 'local' | 'proxy' | 'http';
@@ -61,6 +62,7 @@ export interface Settings {
   halyard: HalyardSettings;
   s3: S3Settings;
   acme: ACMESettings;
+  brand: BrandSettings;
   cloudflare_token?: string; no_uptime: boolean; no_vuln_scan: boolean;
 }
 

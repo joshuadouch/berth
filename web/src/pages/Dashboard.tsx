@@ -1,7 +1,8 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { ago, bytes, Disk, Event, get, Job, Metric, PlanUsage, Service, Site, TrafficHour, UptimeState } from '../api';
 import { fmtBytes, fmtNum, fmtPct, LineChart, SERIES } from '../charts';
-import { Badge, ErrorBox, Icon, JobBadge, Loading, StatusBadge, TypeBadge, useLoad } from '../ui';
+import { useMe } from '../me';
+import { Badge, Copyable, ErrorBox, Icon, JobBadge, Loading, StatusBadge, TypeBadge, useLoad } from '../ui';
 
 interface Dash {
   sites: number; counts: Record<string, number>; attention: Site[]; services: Service[]; disks: Disk[];
@@ -63,6 +64,7 @@ export default function Dashboard({ me }: { me: string }) {
         : data.plan.disk_used >= data.plan.plan.disk_mb * 1048576 * 0.9 ? <div className="warnbox">Your account has used {bytes(data.plan.disk_used)} of {bytes(data.plan.plan.disk_mb * 1048576)} disk space.</div> : null : null}
       {down.length > 0 && <div className="err">Not running: {down.map((s) => s.label).join(', ')}. Sites that use them are down.</div>}
       {!cust && !data.settings.trusted_proxies?.length && <div className="warnbox">No trusted proxies are set, so sites see the load balancer's address instead of the visitor's and cannot tell HTTPS from HTTP. Add your Halyard nodes on the <Link to="/settings">Settings</Link> page.</div>}
+      {cust && data.sites === 0 && <GettingStarted />}
       <div className="row" style={{ marginBottom: 16 }}>
         <Link to="/sites" className="card stat mon-tile"><div className="k"><span className="ic violet"><Icon name="site" size={15} /></span>Sites</div><div className="v">{data.sites}</div><div className="d muted">{data.counts.wordpress ?? 0} WordPress · {(data.counts.php_db ?? 0) + (data.counts.php ?? 0)} PHP</div></Link>
         <Link to="/backups" className="card stat mon-tile"><div className="k"><span className="ic teal"><Icon name="backup" size={15} /></span>Backups</div><div className="v">{data.backups}</div><div className="d muted">{bytes(data.backup_bytes)}{cust ? '' : data.settings.backup_enabled ? ` · nightly at ${data.settings.backup_time}` : ' · nightly off'}</div></Link>
@@ -112,5 +114,28 @@ export default function Dashboard({ me }: { me: string }) {
         </div>}
       </div>
     </>
+  );
+}
+
+// GettingStarted walks a new hosting customer through their first site.
+function GettingStarted() {
+  const { me } = useMe();
+  const b = me?.brand;
+  const dns = me?.plugins.some((p) => p.id === 'dns');
+  return (
+    <div className="card" style={{ marginBottom: 16 }}><div className="ch"><h3>Getting started</h3></div><div className="cb">
+      <ol className="steps" style={{ margin: 0, paddingLeft: 20, lineHeight: 1.7 }}>
+        <li><Link to="/sites/new">Create a site</Link>: WordPress in one click, or PHP with or without a database. You can bring an existing site from a backup.</li>
+        <li>Point your domain at this server{b?.ipv4 || b?.ipv6 ? ':' : ' (ask us for the address).'}
+          {(b?.ipv4 || b?.ipv6) && <div className="row" style={{ gap: 12, margin: '6px 0', flexWrap: 'wrap', alignItems: 'center' }}>
+            {b?.ipv4 && <><span className="muted">A record</span><Copyable value={b.ipv4} /></>}
+            {b?.ipv6 && <><span className="muted">AAAA record</span><Copyable value={b.ipv6} /></>}
+          </div>}
+          {dns && <div className="muted">Or add the domain under <Link to="/p/dns">DNS</Link> and use our nameservers; the records are made for you.</div>}
+        </li>
+        <li>HTTPS sets itself up: a free certificate is issued once the domain points here.</li>
+      </ol>
+      {(b?.support_email || b?.support_url) && <small className="help">Stuck? {b.support_email && <a href={'mailto:' + b.support_email}>{b.support_email}</a>}{b.support_email && b.support_url && ' · '}{b.support_url && <a href={b.support_url} target="_blank" rel="noreferrer">Support</a>}</small>}
+    </div></div>
   );
 }

@@ -100,6 +100,8 @@ export function AccountPage() {
       <div className="head">
         <div><h1>{data.name}</h1><div className="sub">{data.sites.length} site{data.sites.length === 1 ? '' : 's'} · {data.users.length} login{data.users.length === 1 ? '' : 's'}{data.suspended ? ' · suspended' : ''}</div></div>
         <div className="row"><Link to="/accounts" className="btn"><Icon name="back" size={14} />Accounts</Link>
+          {!own && data.users.some((u) => u.role !== 'admin') && !data.suspended && <button className="btn" title="See the panel as this customer sees it"
+            onClick={() => post('/accounts/' + id + '/sign-in-as', {}).then(() => { window.location.href = '/'; }).catch((e) => setErr(e))}><Icon name="user" size={14} />Sign in as customer</button>}
           <button className="btn p" onClick={go(() => put('/accounts/' + id, form), 'Account saved')}>Save</button></div>
       </div>
       <ErrorBox error={err} />

@@ -80,6 +80,7 @@ export default function Settings({ me }: { me: Me }) {
         <div className="stack">
           <MonitoringCard f={f} set={set} />
           <ACMECard f={f} set={set} />
+          <BrandCard f={f} set={set} />
           <AccountCard me={me} />
         </div>
       </div>
@@ -92,6 +93,23 @@ function MonitoringCard({ f, set }: { f: S; set: (p: Partial<S>) => void }) {
     <div className="card"><div className="ch"><h3>Monitoring</h3></div><div className="cb">
       <Toggle on={!f.no_uptime} onChange={(v) => set({ no_uptime: !v })} label="Uptime checks" help="Request every live site once a minute and log outages in Activity. Turn off single sites on their Settings tab." />
       <Toggle on={!f.no_vuln_scan} onChange={(v) => set({ no_vuln_scan: !v })} label="Daily vulnerability check" help="Compare WordPress, plugins and themes with the free WPVulnerability database once a day." />
+    </div></div>
+  );
+}
+
+function BrandCard({ f, set }: { f: S; set: (p: Partial<S>) => void }) {
+  const b = f.brand ?? { name: '', support_email: '', support_url: '', ipv4: '', ipv6: '' };
+  const setb = (p: Partial<typeof b>) => set({ brand: { ...b, ...p } });
+  return (
+    <div className="card"><div className="ch"><h3>Customers</h3></div><div className="cb">
+      <p className="muted" style={{ marginBottom: 12 }}>What hosting customers see.</p>
+      <Field label="Panel name" help="Replaces Berth in the sidebar, the sign-in page and the browser tab."><input className="input" value={b.name} placeholder="Berth" onChange={(e) => setb({ name: e.target.value })} /></Field>
+      <div className="grid2">
+        <Field label="Support email"><input className="input" value={b.support_email} onChange={(e) => setb({ support_email: e.target.value })} /></Field>
+        <Field label="Support link"><input className="input" value={b.support_url} placeholder="https://" onChange={(e) => setb({ support_url: e.target.value })} /></Field>
+        <Field label="Public IPv4" help="Customers point their domains here."><input className="input mono" value={b.ipv4} onChange={(e) => setb({ ipv4: e.target.value })} /></Field>
+        <Field label="Public IPv6"><input className="input mono" value={b.ipv6} onChange={(e) => setb({ ipv6: e.target.value })} /></Field>
+      </div>
     </div></div>
   );
 }

@@ -110,6 +110,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const section = loc.pathname.split('/')[1] || '';
   const [menu, setMenu] = useState(false);
   useEffect(() => setMenu(false), [loc.pathname]);
+  useEffect(() => { document.title = me.brand?.name || 'Berth'; }, [me.brand?.name]);
   useEffect(() => {
     if (!menu) return;
     const h = (e: KeyboardEvent) => e.key === 'Escape' && setMenu(false);
@@ -144,7 +145,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     <>
       {menu && <div className="scrim" onClick={() => setMenu(false)} />}
       <aside className={'side' + (menu ? ' open' : '')}>
-        <div className="brand"><Logo />Berth<span className="badge n" style={{ marginLeft: 'auto', fontSize: 10 }}>{me.version}</span></div>
+        <div className="brand"><Logo />{me.brand?.name || 'Berth'}{admin && <span className="badge n" style={{ marginLeft: 'auto', fontSize: 10 }}>{me.version}</span>}</div>
         {inSite ? <SiteNav id={siteID} /> : <nav className="nav">
           {nav.map((n) => n.length === 1
             ? <div key={n[0]} className="navlabel">{n[0]}</div>
@@ -169,6 +170,10 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           <Link to="/sites/new" className="btn p s hide-sm"><Icon name="plus" size={14} />New site</Link>
           <div className="avatar" title={me.user.username}>{me.user.username.slice(0, 2).toUpperCase()}</div>
         </div>
+        {me.impersonator && <div className="warnbox" style={{ margin: '20px 32px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span>You are signed in as <b>{me.user.username}</b> ({me.account.name}) to see what they see.</span>
+          <button className="btn s" style={{ marginLeft: 'auto' }} onClick={() => post('/sign-in-as/return').then(() => { window.location.href = '/accounts/' + me.account.id; })}>Back to {me.impersonator}</button>
+        </div>}
         <div className="content">
           <PageBoundary resetKey={loc.pathname + loc.search}>
           <Routes>

@@ -490,6 +490,8 @@ type Settings struct {
 	CloudflareToken string `json:"cloudflare_token,omitempty"`
 	// ACME is Let's Encrypt for sites Berth serves over HTTPS itself.
 	ACME ACMESettings `json:"acme"`
+	// Brand is what hosting customers see.
+	Brand BrandSettings `json:"brand"`
 	// NoUptime turns off uptime checks for every site.
 	NoUptime bool `json:"no_uptime"`
 	// NoVulnScan turns off the daily WordPress vulnerability check.
@@ -509,6 +511,38 @@ type S3Settings struct {
 	Keep      int    `json:"keep"`       // backups kept per site off-site
 	// LocalKeep overrides BackupKeep while S3 is on (0 = same as BackupKeep).
 	LocalKeep int `json:"local_keep"`
+}
+
+// BrandSettings is the face of the panel for hosting customers.
+type BrandSettings struct {
+	Name         string `json:"name"` // replaces "Berth" in the panel ("" keeps it)
+	SupportEmail string `json:"support_email"`
+	SupportURL   string `json:"support_url"`
+	// IPv4 and IPv6 are this server's public addresses, which customers point
+	// their domains at.
+	IPv4 string `json:"ipv4"`
+	IPv6 string `json:"ipv6"`
+}
+
+func (b *BrandSettings) normalize() error {
+	b.Name, b.SupportEmail, b.SupportURL = strings.TrimSpace(b.Name), strings.TrimSpace(b.SupportEmail), strings.TrimSpace(b.SupportURL)
+	b.IPv4, b.IPv6 = strings.TrimSpace(b.IPv4), strings.TrimSpace(b.IPv6)
+	if len(b.Name) > 40 {
+		return errors.New("the brand name can be at most 40 characters")
+	}
+	if b.SupportEmail != "" && !strings.Contains(b.SupportEmail, "@") {
+		return errors.New("the support email looks invalid")
+	}
+	if b.SupportURL != "" && !strings.HasPrefix(b.SupportURL, "https://") && !strings.HasPrefix(b.SupportURL, "http://") {
+		return errors.New("the support link must start with https://")
+	}
+	if ip := net.ParseIP(b.IPv4); b.IPv4 != "" && (ip == nil || ip.To4() == nil) {
+		return fmt.Errorf("%q is not an IPv4 address", b.IPv4)
+	}
+	if ip := net.ParseIP(b.IPv6); b.IPv6 != "" && (ip == nil || ip.To4() != nil) {
+		return fmt.Errorf("%q is not an IPv6 address", b.IPv6)
+	}
+	return nil
 }
 
 // ACMESettings configures Let's Encrypt.
@@ -539,6 +573,9 @@ var timeRe = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
 
 // Normalize fills defaults and validates settings.
 func (st *Settings) Normalize() error {
+	if err := st.Brand.normalize(); err != nil {
+		return err
+	}
 	var tp []string
 	for _, p := range st.TrustedProxies {
 		p = strings.TrimSpace(p)

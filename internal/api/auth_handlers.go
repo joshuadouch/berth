@@ -27,8 +27,9 @@ func (s *Server) getSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	team, aud, _ := s.accessSettings(r.Context())
+	st, _ := s.Store.Settings(r.Context())
 	writeJSON(w, 200, map[string]any{
-		"needs_setup": n == 0, "version": s.Version, "name": s.Cfg.Name,
+		"needs_setup": n == 0, "version": s.Version, "name": s.Cfg.Name, "brand": st.Brand.Name,
 		"access_enabled": team != "" && aud != "",
 	})
 }
@@ -139,10 +140,20 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	a, _ := s.Store.Account(r.Context(), u.AccountID)
-	writeJSON(w, 200, map[string]any{"user": u, "account": a, "name": s.Cfg.Name, "version": s.Version, "plugins": s.myPlugins(r), "usage": s.planUsage(r.Context(), u.AccountID)})
+	st, _ := s.Store.Settings(r.Context())
+	out := map[string]any{"user": u, "account": a, "name": s.Cfg.Name, "version": s.Version, "plugins": s.myPlugins(r),
+		"usage": s.planUsage(r.Context(), u.AccountID), "brand": st.Brand}
+	if admin, ok := s.impersonator(r); ok {
+		out["impersonator"] = admin.Username
+	}
+	writeJSON(w, 200, out)
 }
 
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.impersonator(r); ok {
+		writeErr(w, 403, "you are signed in as this customer; their password and two-factor sign-in are theirs to change")
+		return
+	}
 	var req struct {
 		Current string `json:"current"`
 		New     string `json:"new"`
@@ -170,6 +181,10 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) totpSetup(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.impersonator(r); ok {
+		writeErr(w, 403, "you are signed in as this customer; their password and two-factor sign-in are theirs to change")
+		return
+	}
 	u := currentUser(r)
 	if u.TOTPEnabled {
 		writeErr(w, 400, "two-factor is already on")
@@ -184,6 +199,10 @@ func (s *Server) totpSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) totpEnable(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.impersonator(r); ok {
+		writeErr(w, 403, "you are signed in as this customer; their password and two-factor sign-in are theirs to change")
+		return
+	}
 	var req struct {
 		Code string `json:"code"`
 	}
@@ -205,6 +224,10 @@ func (s *Server) totpEnable(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) totpDisable(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.impersonator(r); ok {
+		writeErr(w, 403, "you are signed in as this customer; their password and two-factor sign-in are theirs to change")
+		return
+	}
 	var req struct {
 		Code string `json:"code"`
 	}
