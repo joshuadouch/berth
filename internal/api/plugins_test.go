@@ -45,7 +45,7 @@ func TestPluginsAPI(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	var list []map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil || len(list) != 1 || list[0]["id"] != "mailcow" || list[0]["nav_label"] != "Mail" {
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil || len(list) != 3 || list[2]["id"] != "mailcow" || list[2]["nav_label"] != "Mail" {
 		t.Fatalf("list: %v %v", list, err)
 	}
 	// Enabled: requests now reach the plugin (mailcow itself is unreachable here,

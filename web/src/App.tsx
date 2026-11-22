@@ -119,7 +119,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const admin = me.user.role === 'admin';
   const [plugins, setPlugins] = useState<PluginView[]>([]);
   useEffect(() => {
-    if (!admin) return;
+    if (!admin) { setPlugins(me.plugins.map((p) => ({ ...p, enabled: true } as PluginView))); return; }
     const load = () => get<PluginView[]>('/plugins').then(setPlugins).catch(() => undefined);
     load();
     window.addEventListener('berth-plugins', load);

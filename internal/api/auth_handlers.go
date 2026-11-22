@@ -26,10 +26,10 @@ func (s *Server) getSetup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	st, _ := s.Store.Settings(r.Context())
+	team, aud, _ := s.accessSettings(r.Context())
 	writeJSON(w, 200, map[string]any{
 		"needs_setup": n == 0, "version": s.Version, "name": s.Cfg.Name,
-		"access_enabled": st.AccessTeam != "" && st.AccessAUD != "",
+		"access_enabled": team != "" && aud != "",
 	})
 }
 
@@ -139,7 +139,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	a, _ := s.Store.Account(r.Context(), u.AccountID)
-	writeJSON(w, 200, map[string]any{"user": u, "account": a, "name": s.Cfg.Name, "version": s.Version})
+	writeJSON(w, 200, map[string]any{"user": u, "account": a, "name": s.Cfg.Name, "version": s.Version, "plugins": s.myPlugins(r)})
 }
 
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {

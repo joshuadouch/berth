@@ -98,13 +98,11 @@ func (s *Server) Handler() http.Handler {
 	as("PUT /api/sites/{id}/auto-update", s.setAutoUpdate)
 	as("GET /api/sites/{id}/vulns", s.siteVulns)
 	as("POST /api/sites/{id}/vulns/scan", s.scanVulns)
-	ad("POST /api/sites/{id}/cloudflare/purge", s.purgeCloudflare)
 	as("GET /api/sites/{id}/uptime", s.siteUptime)
 	as("GET /api/sites/{id}/traffic", s.siteTraffic)
 	as("GET /api/sites/{id}/performance", s.sitePerformance)
 	as("GET /api/sites/{id}/resources", s.siteResources)
 	ad("GET /api/resources", s.serverResources)
-	ad("POST /api/settings/cloudflare/test", s.testCloudflare)
 	ad("POST /api/sites/{id}/halyard", s.halyardSync)
 	ad("DELETE /api/sites/{id}/halyard", s.halyardUnlink)
 	ad("PUT /api/sites/{id}/account", s.moveSite)
@@ -156,7 +154,8 @@ func (s *Server) Handler() http.Handler {
 	ad("GET /api/plugins", s.listPlugins)
 	ad("PUT /api/plugins/{id}", s.savePlugin)
 	ad("POST /api/plugins/{id}/test", s.testPlugin)
-	mux.Handle("/api/p/{id}/", s.requireAuth(adminOnly(s.Plugins.ServeHTTP)))
+	ad("PUT /api/plugins/{id}/accounts", s.pluginAccounts)
+	mux.Handle("/api/p/{id}/", s.requireAuth(s.pluginGate(s.Plugins.ServeHTTP)))
 
 	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "no such endpoint")
@@ -251,11 +250,11 @@ func (s *Server) credentials(r *http.Request) (model.User, error) {
 	if tok == "" {
 		return model.User{}, errors.New("no credentials")
 	}
-	st, err := s.Store.Settings(r.Context())
-	if err != nil || st.AccessTeam == "" || st.AccessAUD == "" {
+	team, aud, emails := s.accessSettings(r.Context())
+	if team == "" || aud == "" {
 		return model.User{}, errors.New("access not configured")
 	}
-	email, err := s.Access.Verify(r.Context(), st.AccessTeam, st.AccessAUD, tok)
+	email, err := s.Access.Verify(r.Context(), team, aud, tok)
 	if err != nil {
 		return model.User{}, err
 	}
@@ -266,7 +265,7 @@ func (s *Server) credentials(r *http.Request) (model.User, error) {
 	if strings.EqualFold(admin.Email, email) {
 		return admin, nil
 	}
-	for _, allowed := range st.AccessEmails {
+	for _, allowed := range emails {
 		if strings.EqualFold(allowed, email) {
 			return admin, nil
 		}

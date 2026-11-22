@@ -133,3 +133,56 @@ func TestMigrateAccounts(t *testing.T) {
 		t.Fatalf("accounts %v user %+v site %+v", accts, u, s)
 	}
 }
+
+func TestPerAccountPlugins(t *testing.T) {
+	ts, st := testServer(t)
+	admin := &client{t: t, ts: ts}
+	admin.do("POST", "/api/setup", map[string]string{"username": "josh", "email": "josh@example.com", "password": "correct horse battery"}, false)
+	_, me := admin.do("GET", "/api/me", nil, true)
+	own := me["user"].(map[string]any)["account_id"].(string)
+	_, out := admin.do("POST", "/api/accounts", map[string]any{"name": "Acme", "user": map[string]string{"username": "acme", "password": "acme acme acme 1"}}, true)
+	acct := out["id"].(string)
+
+	if code, out := admin.do("PUT", "/api/plugins/halyard", map[string]any{"enabled": true, "config": map[string]any{}}, true); code != 200 {
+		t.Fatalf("enable halyard: %d %v", code, out)
+	}
+	// Halyard and Cloudflare are never for customers.
+	for _, id := range []string{"halyard", "cloudflare"} {
+		if code, _ := admin.do("PUT", "/api/plugins/"+id+"/accounts", map[string]any{"accounts": []string{acct}}, true); code != 400 {
+			t.Errorf("%s for a customer account: %d", id, code)
+		}
+	}
+	if code, out := admin.do("PUT", "/api/plugins/halyard/accounts", map[string]any{"accounts": []string{own}}, true); code != 200 {
+		t.Fatalf("halyard for own account: %d %v", code, out)
+	}
+	if code, _ := admin.do("PUT", "/api/plugins/mailcow/accounts", map[string]any{"accounts": []string{own}}, true); code != 400 {
+		t.Errorf("server-wide plugin took accounts: %d", code)
+	}
+
+	admin.do("POST", "/api/sites", map[string]any{"type": "php", "domain": "mine.test", "php_version": "8.3", "enabled": true,
+		"halyard": map[string]any{"enabled": true}}, true)
+	admin.do("POST", "/api/sites", map[string]any{"type": "php", "domain": "theirs.test", "php_version": "8.3", "enabled": true,
+		"account_id": acct, "halyard": map[string]any{"enabled": true}}, true)
+	mine, _ := st.Site(context.Background(), "minetest")
+	theirs, _ := st.Site(context.Background(), "theirstest")
+	if !mine.Halyard.Enabled || theirs.Halyard.Enabled {
+		t.Fatalf("halyard link mine=%v theirs=%v", mine.Halyard.Enabled, theirs.Halyard.Enabled)
+	}
+	if _, out := admin.do("GET", "/api/sites/theirstest", nil, true); out["halyard"] != false {
+		t.Errorf("customer site offers halyard: %v", out["halyard"])
+	}
+	if code, _ := admin.do("POST", "/api/sites/theirstest/halyard", map[string]any{}, true); code != 400 {
+		t.Errorf("published a customer site on halyard: %d", code)
+	}
+
+	cust := &client{t: t, ts: ts}
+	cust.do("POST", "/api/login", map[string]string{"username": "acme", "password": "acme acme acme 1"}, false)
+	for _, id := range []string{"mailcow", "cloudflare", "halyard"} {
+		if code, _ := cust.do("GET", "/api/p/"+id+"/", nil, true); code != 404 {
+			t.Errorf("customer reached plugin %s: %d", id, code)
+		}
+	}
+	if _, out := cust.do("GET", "/api/me", nil, true); len(out["plugins"].([]any)) != 0 {
+		t.Errorf("customer plugins: %v", out["plugins"])
+	}
+}

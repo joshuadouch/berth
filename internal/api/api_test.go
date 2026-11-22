@@ -36,7 +36,9 @@ func testServer(t *testing.T) (*httptest.Server, *store.Store) {
 	_ = st.SetSettings(context.Background(), settings)
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	eng := engine.New(cfg, st, log)
-	srv := &Server{Cfg: cfg, Store: st, Engine: eng, Log: log, Version: "test", Plugins: plugin.NewRegistry(st, log, plugins.All()...)}
+	reg := plugin.NewRegistry(st, log, plugins.All()...)
+	eng.Plugins = reg
+	srv := &Server{Cfg: cfg, Store: st, Engine: eng, Log: log, Version: "test", Plugins: reg}
 	ts := httptest.NewTLSServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, st

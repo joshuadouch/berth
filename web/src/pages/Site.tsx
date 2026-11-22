@@ -29,7 +29,7 @@ export default function SitePage() {
   if (!d.data) return d.error ? <ErrorBox error={d.error} /> : <Loading />;
   const s = d.data.site;
   const visible = visibleTabs(s);
-  const purge = () => post<{ hosts: number }>('/sites/' + s.id + '/cloudflare/purge').then((r) => toast(`Cloudflare cache cleared for ${r.hosts} hostname${r.hosts === 1 ? '' : 's'}`)).catch((e) => toast(e.message, true));
+  const purge = () => post<{ hosts: number }>('/p/cloudflare/sites/' + s.id + '/purge').then((r) => toast(`Cloudflare cache cleared for ${r.hosts} hostname${r.hosts === 1 ? '' : 's'}`)).catch((e) => toast(e.message, true));
   const startJob = (p: Promise<{ job_id: number }>, msg?: string) => p.then((r) => { setJob(r.job_id); if (msg) toast(msg); d.reload(); }).catch((e) => toast(e.message, true));
   return (
     <>
@@ -107,7 +107,7 @@ function Overview({ d, reload, startJob }: { d: SiteDetail; reload: () => void; 
         </div>
       </div>
       <div className="stack">
-        {isAdmin && <HalyardCard s={s} reload={reload} />}
+        {isAdmin && d.halyard && <HalyardCard s={s} reload={reload} />}
         {s.db && <div className="card"><div className="ch"><h3>Database</h3>
           <button className="btn s" onClick={() => confirm('Set a new database password?' + (s.type === 'wordpress' ? ' wp-config.php is updated for you.' : ' Update your app\'s config afterwards.')) && act(post('/sites/' + s.id + '/db/password'), 'Password changed')}>New password</button></div>
           <div className="cb">

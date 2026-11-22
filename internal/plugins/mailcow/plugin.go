@@ -47,6 +47,7 @@ func (p *Plugin) Info() plugin.Info {
 		Version:     "1.0",
 		Icon:        "mail",
 		NavLabel:    "Mail",
+		AdminOnly:   true,
 		Fields: []plugin.Field{
 			{Key: "url", Label: "mailcow address", Type: plugin.Text, Section: sec, Required: true, Placeholder: "https://mail.example.com", Help: "The address of your mailcow web UI."},
 			{Key: "api_key", Label: "API key", Type: plugin.Secret, Section: sec, Required: true, Help: "mailcow → System → Configuration → Access → API: a read-write key. Add this server's IP to the allowed networks."},

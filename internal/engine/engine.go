@@ -24,6 +24,11 @@ import (
 	"github.com/joshuadouch/berth/internal/sys"
 )
 
+// PluginSwitch reports whether a plugin is on for an account.
+type PluginSwitch interface {
+	ActiveFor(ctx context.Context, id, account string) bool
+}
+
 // Engine owns every change to the machine.
 type Engine struct {
 	Cfg     *config.Config
@@ -39,6 +44,9 @@ type Engine struct {
 	// HTTP and LocalBase point outgoing checks at test servers.
 	HTTP      *http.Client
 	LocalBase string
+	// Plugins says which plugins are on for an account. Nil means every
+	// plugin is on (tests).
+	Plugins PluginSwitch
 
 	applyMu sync.Mutex
 	siteMu  sync.Map // site name -> *sync.Mutex

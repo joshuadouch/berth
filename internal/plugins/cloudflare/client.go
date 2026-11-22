@@ -1,4 +1,6 @@
-package engine
+// Package cloudflare is the Cloudflare plugin: cache purges for sites and
+// Cloudflare Access sign-in for the panel. It is for the server's admins only.
+package cloudflare
 
 import (
 	"bytes"
@@ -10,12 +12,10 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/joshuadouch/berth/internal/model"
 )
 
-// cloudflareAPI is Cloudflare's API base (tests point it elsewhere).
-var cloudflareAPI = "https://api.cloudflare.com/client/v4"
+// API is Cloudflare's API base (tests point it elsewhere).
+var API = "https://api.cloudflare.com/client/v4"
 
 type cfEnvelope struct {
 	Success bool `json:"success"`
@@ -26,7 +26,13 @@ type cfEnvelope struct {
 	Result json.RawMessage `json:"result"`
 }
 
-func (e *Engine) cloudflare(ctx context.Context, token, method, path string, body, out any) error {
+// Client calls the Cloudflare API with a token.
+type Client struct {
+	Token string
+	HTTP  *http.Client
+}
+
+func (c *Client) call(ctx context.Context, method, path string, body, out any) error {
 	var rd *bytes.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
@@ -34,13 +40,17 @@ func (e *Engine) cloudflare(ctx context.Context, token, method, path string, bod
 	} else {
 		rd = bytes.NewReader(nil)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, cloudflareAPI+path, rd)
+	req, err := http.NewRequestWithContext(ctx, method, API+path, rd)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", "application/json")
-	res, err := e.httpClient(30 * time.Second).Do(req)
+	hc := c.HTTP
+	if hc == nil {
+		hc = &http.Client{Timeout: 30 * time.Second}
+	}
+	res, err := hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("Cloudflare: %w", err)
 	}
@@ -66,7 +76,7 @@ func (e *Engine) cloudflare(ctx context.Context, token, method, path string, bod
 }
 
 // zoneFor finds the Cloudflare zone that holds a hostname.
-func (e *Engine) zoneFor(ctx context.Context, token, host string) (string, string, error) {
+func (c *Client) zoneFor(ctx context.Context, host string) (string, string, error) {
 	labels := strings.Split(host, ".")
 	for i := 0; i < len(labels)-1; i++ {
 		name := strings.Join(labels[i:], ".")
@@ -74,7 +84,7 @@ func (e *Engine) zoneFor(ctx context.Context, token, host string) (string, strin
 			ID   string `json:"id"`
 			Name string `json:"name"`
 		}
-		if err := e.cloudflare(ctx, token, "GET", "/zones?name="+url.QueryEscape(name), nil, &zones); err != nil {
+		if err := c.call(ctx, "GET", "/zones?name="+url.QueryEscape(name), nil, &zones); err != nil {
 			return "", "", err
 		}
 		if len(zones) > 0 {
@@ -84,18 +94,11 @@ func (e *Engine) zoneFor(ctx context.Context, token, host string) (string, strin
 	return "", "", fmt.Errorf("no Cloudflare zone for %s is visible to the token", host)
 }
 
-// PurgeCloudflare clears Cloudflare's cache for every hostname of a site.
-func (e *Engine) PurgeCloudflare(ctx context.Context, s model.Site) (int, error) {
-	st, err := e.Store.Settings(ctx)
-	if err != nil {
-		return 0, err
-	}
-	if st.CloudflareToken == "" {
-		return 0, errors.New("add a Cloudflare token under Settings → Cloudflare first")
-	}
+// Purge clears Cloudflare's cache for hostnames, zone by zone.
+func (c *Client) Purge(ctx context.Context, hostnames []string) (int, error) {
 	byZone := map[string][]string{}
-	for _, h := range s.Hostnames() {
-		id, _, err := e.zoneFor(ctx, st.CloudflareToken, h)
+	for _, h := range hostnames {
+		id, _, err := c.zoneFor(ctx, h)
 		if err != nil {
 			return 0, err
 		}
@@ -103,7 +106,7 @@ func (e *Engine) PurgeCloudflare(ctx context.Context, s model.Site) (int, error)
 	}
 	n := 0
 	for id, hosts := range byZone {
-		if err := e.cloudflare(ctx, st.CloudflareToken, "POST", "/zones/"+id+"/purge_cache", map[string]any{"hosts": hosts}, nil); err != nil {
+		if err := c.call(ctx, "POST", "/zones/"+id+"/purge_cache", map[string]any{"hosts": hosts}, nil); err != nil {
 			return n, err
 		}
 		n += len(hosts)
@@ -111,18 +114,18 @@ func (e *Engine) PurgeCloudflare(ctx context.Context, s model.Site) (int, error)
 	return n, nil
 }
 
-// TestCloudflare checks that the token works.
-func (e *Engine) TestCloudflare(ctx context.Context, token string) (string, error) {
+// Verify checks that the token works and lists the zones it sees.
+func (c *Client) Verify(ctx context.Context) (string, error) {
 	var res struct {
 		Status string `json:"status"`
 	}
-	if err := e.cloudflare(ctx, token, "GET", "/user/tokens/verify", nil, &res); err != nil {
+	if err := c.call(ctx, "GET", "/user/tokens/verify", nil, &res); err != nil {
 		return "", err
 	}
 	var zones []struct {
 		Name string `json:"name"`
 	}
-	if err := e.cloudflare(ctx, token, "GET", "/zones?per_page=50", nil, &zones); err != nil {
+	if err := c.call(ctx, "GET", "/zones?per_page=50", nil, &zones); err != nil {
 		return "", err
 	}
 	names := make([]string, 0, len(zones))

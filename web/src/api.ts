@@ -54,7 +54,7 @@ export interface Settings {
 
 export interface SiteDetail {
   site: Site; usage: Usage; backups: Backup[]; jobs: Job[]; events: Event[]; dir: string; user: string; socket: string; sftp_available: boolean;
-  cloudflare: boolean; uptime: UptimeState | null; vulns: number;
+  cloudflare: boolean; halyard: boolean; uptime: UptimeState | null; vulns: number;
 }
 export interface WPInfo {
   version: string; core_update: string; siteurl: string; error?: string; plugin_updates: number; theme_updates: number;
@@ -157,6 +157,8 @@ export interface PluginField {
 export interface PluginView {
   id: string; name: string; description: string; version: string; icon: string; nav_label: string; fields: PluginField[];
   enabled: boolean; config: Record<string, any>; secrets_set: Record<string, boolean>; can_test: boolean;
+  per_account: boolean; admin_only: boolean; accounts: string[];
 }
+export interface PluginLink { id: string; name: string; icon: string; nav_label: string }
 // Other parts of the UI (the sidebar) listen for this after plugins change.
 export const pluginsChanged = () => window.dispatchEvent(new Event('berth-plugins'));

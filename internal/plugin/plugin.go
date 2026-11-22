@@ -62,6 +62,12 @@ type Info struct {
 	Icon        string  `json:"icon"`      // UI icon name
 	NavLabel    string  `json:"nav_label"` // sidebar entry while enabled ("" = none)
 	Fields      []Field `json:"fields"`
+	// PerAccount plugins are switched on for chosen accounts; the others
+	// work for the whole server.
+	PerAccount bool `json:"per_account"`
+	// AdminOnly plugins can only be switched on for accounts with an admin
+	// login, never for hosting customers.
+	AdminOnly bool `json:"admin_only"`
 }
 
 // Plugin is a Berth plugin.
@@ -132,6 +138,8 @@ func (c Config) Int(k string) int {
 type State struct {
 	Enabled bool   `json:"enabled"`
 	Config  Config `json:"config"`
+	// Accounts a PerAccount plugin is switched on for.
+	Accounts []string `json:"accounts,omitempty"`
 }
 
 // Host is what a plugin gets from Berth.
@@ -146,6 +154,34 @@ type Host struct {
 func (h *Host) Config(ctx context.Context) (Config, error) {
 	st, err := h.reg.state(ctx, h.ID)
 	return st.Config, err
+}
+
+// ActiveFor reports whether the plugin is switched on for an account.
+func (h *Host) ActiveFor(ctx context.Context, account string) bool {
+	return h.reg.ActiveFor(ctx, h.ID, account)
+}
+
+// Site loads one of Berth's sites.
+func (h *Host) Site(ctx context.Context, name string) (model.Site, error) {
+	return h.Store.Site(ctx, name)
+}
+
+// SiteEvent records an entry in a site's activity log.
+func (h *Host) SiteEvent(ctx context.Context, level, site, msg string) {
+	h.Store.AddEvent(ctx, level, "plugin."+h.ID, site, msg)
+}
+
+type userKey struct{}
+
+// WithUser stores the signed-in user in a request context for plugins.
+func WithUser(ctx context.Context, u model.User) context.Context {
+	return context.WithValue(ctx, userKey{}, u)
+}
+
+// User returns the signed-in user of a plugin request.
+func User(r *http.Request) model.User {
+	u, _ := r.Context().Value(userKey{}).(model.User)
+	return u
 }
 
 // Enabled reports whether the plugin is switched on.
@@ -241,6 +277,7 @@ func normalizeDefault(v any) any {
 type View struct {
 	Info
 	Enabled    bool            `json:"enabled"`
+	Accounts   []string        `json:"accounts"`
 	Config     Config          `json:"config"`
 	SecretsSet map[string]bool `json:"secrets_set"`
 	CanTest    bool            `json:"can_test"`
@@ -270,7 +307,13 @@ func (r *Registry) View(ctx context.Context, id string) (View, error) {
 		return View{}, err
 	}
 	_, canTest := p.(Tester)
-	v := View{Info: p.Info(), Enabled: st.Enabled, Config: Config{}, SecretsSet: map[string]bool{}, CanTest: canTest}
+	v := View{Info: p.Info(), Enabled: st.Enabled, Accounts: st.Accounts, Config: Config{}, SecretsSet: map[string]bool{}, CanTest: canTest}
+	if v.Accounts == nil {
+		v.Accounts = []string{}
+	}
+	if v.Fields == nil {
+		v.Fields = []Field{}
+	}
 	for _, f := range v.Fields {
 		if f.Type == Secret {
 			v.SecretsSet[f.Key] = st.Config.Str(f.Key) != ""
@@ -374,6 +417,75 @@ func (r *Registry) Test(ctx context.Context, id string, in Config) (string, erro
 		return "", errors.New("this plugin has nothing to test")
 	}
 	return t.Test(ctx, st.Config)
+}
+
+// SetAccounts chooses the accounts a PerAccount plugin is switched on for.
+func (r *Registry) SetAccounts(ctx context.Context, id string, accounts []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	p, err := r.find(id)
+	if err != nil {
+		return err
+	}
+	if !p.Info().PerAccount {
+		return errors.New("this plugin works for the whole server")
+	}
+	st, err := r.state(ctx, id)
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	st.Accounts = []string{}
+	for _, a := range accounts {
+		if a != "" && !seen[a] {
+			seen[a] = true
+			st.Accounts = append(st.Accounts, a)
+		}
+	}
+	return r.st.SetKV(ctx, "plugin:"+id, st)
+}
+
+// ActiveFor reports whether a plugin is switched on for an account. Plugins
+// that are not PerAccount are on for everyone while enabled.
+func (r *Registry) ActiveFor(ctx context.Context, id, account string) bool {
+	p, err := r.find(id)
+	if err != nil {
+		return false
+	}
+	st, err := r.state(ctx, id)
+	if err != nil || !st.Enabled {
+		return false
+	}
+	if !p.Info().PerAccount {
+		return true
+	}
+	for _, a := range st.Accounts {
+		if a == account {
+			return true
+		}
+	}
+	return false
+}
+
+// Info returns a plugin's description.
+func (r *Registry) Info(id string) (Info, error) {
+	p, err := r.find(id)
+	if err != nil {
+		return Info{}, err
+	}
+	return p.Info(), nil
+}
+
+// Config returns a plugin's saved settings, defaults filled in.
+func (r *Registry) Config(ctx context.Context, id string) (Config, error) {
+	st, err := r.state(ctx, id)
+	return st.Config, err
+}
+
+// Saved reports whether a plugin's state was ever stored.
+func (r *Registry) Saved(ctx context.Context, id string) bool {
+	var raw map[string]any
+	return r.st.GetKV(ctx, "plugin:"+id, &raw) == nil && raw != nil
 }
 
 // Enabled reports whether a plugin is switched on.

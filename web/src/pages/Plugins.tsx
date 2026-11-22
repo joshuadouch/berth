@@ -1,27 +1,29 @@
 import { ComponentType, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { get, PluginField, pluginsChanged, PluginView, post, put } from '../api';
+import { AccountView, get, PluginField, pluginsChanged, PluginView, post, put } from '../api';
 import { Badge, ErrorBox, Field, Icon, Loading, Toggle, useLoad, useToast } from '../ui';
 import Mail from './Mail';
+import { HalyardPage } from './Settings';
 
 // Plugins with a page of their own, by plugin ID. The page is at /p/<id>.
-export const pluginPages: Record<string, ComponentType> = { mailcow: Mail };
+export const pluginPages: Record<string, ComponentType> = { mailcow: Mail, halyard: HalyardPage };
 
 export default function Plugins() {
   const { data, error, reload } = useLoad(() => get<PluginView[]>('/plugins'));
+  const accounts = useLoad(() => get<AccountView[]>('/accounts'));
   if (!data) return error ? <ErrorBox error={error} /> : <Loading />;
   return (
     <>
-      <div className="head"><div><h1>Plugins</h1><div className="sub">Extra features built into Berth. Turn one on and fill in its settings.</div></div></div>
+      <div className="head"><div><h1>Plugins</h1><div className="sub">Extra features built into Berth. Turn one on, fill in its settings and, for per-account plugins, choose the accounts it is on for.</div></div></div>
       <div className="stack">
-        {data.map((p) => <PluginCard key={p.id} p={p} onSaved={reload} />)}
+        {data.map((p) => <PluginCard key={p.id} p={p} accounts={accounts.data ?? []} onSaved={reload} />)}
         {data.length === 0 && <div className="card"><div className="empty">No plugins are built into this version.</div></div>}
       </div>
     </>
   );
 }
 
-function PluginCard({ p, onSaved }: { p: PluginView; onSaved: () => void }) {
+function PluginCard({ p, accounts, onSaved }: { p: PluginView; accounts: AccountView[]; onSaved: () => void }) {
   const [open, setOpen] = useState(false);
   const [cfg, setCfg] = useState<Record<string, any>>(p.config);
   const [err, setErr] = useState<unknown>(null);
@@ -68,6 +70,7 @@ function PluginCard({ p, onSaved }: { p: PluginView; onSaved: () => void }) {
       </div>
       <div className="cb">
         <p className="muted">{p.description}</p>
+        {p.per_account && p.enabled && <PluginAccounts p={p} accounts={accounts} onSaved={onSaved} />}
         {open && <div style={{ marginTop: 16 }}>
           <ErrorBox error={err} />
           {sections.map(([name, fields]) => (
@@ -87,6 +90,31 @@ function PluginCard({ p, onSaved }: { p: PluginView; onSaved: () => void }) {
         </div>}
         {!open && err != null && <div style={{ marginTop: 12 }}><ErrorBox error={err} /></div>}
       </div>
+    </div>
+  );
+}
+
+// PluginAccounts chooses the accounts a per-account plugin is on for.
+function PluginAccounts({ p, accounts, onSaved }: { p: PluginView; accounts: AccountView[]; onSaved: () => void }) {
+  const toast = useToast();
+  const [err, setErr] = useState<unknown>(null);
+  const on = new Set(p.accounts);
+  const toggle = (id: string, v: boolean) => {
+    const next = accounts.map((a) => a.id).filter((x) => (x === id ? v : on.has(x)));
+    setErr(null);
+    put('/plugins/' + p.id + '/accounts', { accounts: next }).then(() => { toast('Saved'); onSaved(); pluginsChanged(); }).catch(setErr);
+  };
+  const eligible = (a: AccountView) => !p.admin_only || a.users.some((u) => u.role === 'admin');
+  const shown = accounts.filter((a) => eligible(a) || on.has(a.id));
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div className="navlabel" style={{ padding: '0 0 8px' }}>On for{p.admin_only ? ' (your own accounts only)' : ''}</div>
+      <ErrorBox error={err} />
+      <div className="row" style={{ gap: 18, flexWrap: 'wrap' }}>
+        {shown.map((a) => <Toggle key={a.id} on={on.has(a.id)} onChange={(v) => toggle(a.id, v)} label={a.name} />)}
+        {shown.length === 0 && <span className="dim">No accounts can use it.</span>}
+      </div>
+      {p.accounts.length === 0 && <small className="help">It is on for nobody yet, so it does nothing.</small>}
     </div>
   );
 }
