@@ -370,6 +370,9 @@ func Pool(p Paths, s model.Site) string {
 	w("php_admin_flag[log_errors] = on")
 	w("php_admin_flag[display_errors] = off")
 	w("php_admin_flag[expose_php] = off")
+	if s.NoShell {
+		w("php_admin_value[disable_functions] = %s", model.ShellFunctions)
+	}
 	w("php_admin_value[memory_limit] = %dM", s.MemoryMB)
 	w("php_admin_value[upload_max_filesize] = %dM", s.UploadMB)
 	w("php_admin_value[post_max_size] = %dM", s.UploadMB)

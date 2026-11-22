@@ -1,4 +1,5 @@
 import type { Me } from '../me';
+import { UsageCard } from './Plans';
 import { AccountCard } from './Settings';
 
 export default function MyAccount({ me }: { me: Me }) {
@@ -15,6 +16,7 @@ export default function MyAccount({ me }: { me: Me }) {
           </tbody></table>
           <small className="help">To change your plan or contact details, get in touch with your host.</small>
         </div></div>
+        {me.usage && <UsageCard u={me.usage} title="Your plan" />}
       </div>
     </>
   );

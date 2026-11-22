@@ -625,3 +625,69 @@ func (s *Store) DeleteUserSessions(ctx context.Context, userID string) {
 func SortBackups(b []model.Backup) {
 	sort.Slice(b, func(i, j int) bool { return b[i].Time.After(b[j].Time) })
 }
+
+// Plans lists the hosting plans.
+func (s *Store) Plans(ctx context.Context) ([]model.Plan, error) {
+	var ps []model.Plan
+	if err := s.GetKV(ctx, "plans", &ps); err != nil {
+		return nil, err
+	}
+	if ps == nil {
+		ps = []model.Plan{}
+	}
+	return ps, nil
+}
+
+// Plan loads one hosting plan.
+func (s *Store) Plan(ctx context.Context, id string) (model.Plan, error) {
+	ps, err := s.Plans(ctx)
+	if err != nil {
+		return model.Plan{}, err
+	}
+	for _, p := range ps {
+		if p.ID == id {
+			return p, nil
+		}
+	}
+	return model.Plan{}, ErrNotFound
+}
+
+// SavePlan adds or replaces a hosting plan.
+func (s *Store) SavePlan(ctx context.Context, p model.Plan) error {
+	ps, err := s.Plans(ctx)
+	if err != nil {
+		return err
+	}
+	for i := range ps {
+		if ps[i].ID == p.ID {
+			ps[i] = p
+			return s.SetKV(ctx, "plans", ps)
+		}
+	}
+	return s.SetKV(ctx, "plans", append(ps, p))
+}
+
+// DeletePlan removes a hosting plan.
+func (s *Store) DeletePlan(ctx context.Context, id string) error {
+	ps, err := s.Plans(ctx)
+	if err != nil {
+		return err
+	}
+	out := ps[:0]
+	for _, p := range ps {
+		if p.ID != id {
+			out = append(out, p)
+		}
+	}
+	return s.SetKV(ctx, "plans", out)
+}
+
+// AccountPlan returns the plan of an account, and false when it has none.
+func (s *Store) AccountPlan(ctx context.Context, accountID string) (model.Plan, bool) {
+	a, err := s.Account(ctx, accountID)
+	if err != nil || a.PlanID == "" {
+		return model.Plan{}, false
+	}
+	p, err := s.Plan(ctx, a.PlanID)
+	return p, err == nil
+}

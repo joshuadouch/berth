@@ -135,6 +135,10 @@ func (s *Server) uploadFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dir := r.URL.Query().Get("path")
+	if err := s.Engine.OverQuota(r.Context(), site.AccountID); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
 	longUpload(w)
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<30)
 	mr, err := r.MultipartReader()
@@ -250,6 +254,10 @@ func (s *Server) dbSQL(w http.ResponseWriter, r *http.Request) {
 // Site imports -----------------------------------------------------------------
 
 func (s *Server) uploadImport(w http.ResponseWriter, r *http.Request) {
+	if err := s.Engine.OverQuota(r.Context(), currentUser(r).AccountID); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
 	longUpload(w)
 	r.Body = http.MaxBytesReader(w, r.Body, 20<<30)
 	mr, err := r.MultipartReader()

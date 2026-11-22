@@ -91,6 +91,17 @@ func TestRender(t *testing.T) {
 	if strings.Contains(pool, "#") {
 		t.Error("PHP-FPM pools must use ; comments")
 	}
+	if strings.Contains(pool, "disable_functions") {
+		t.Error("shell functions blocked without a plan")
+	}
+	for _, s := range testSites(t) {
+		if s.Name == "app" {
+			s.NoShell = true
+			if !strings.Contains(Pool(p, s), "php_admin_value[disable_functions] = exec,") {
+				t.Error("NoShell site keeps shell functions")
+			}
+		}
+	}
 
 	dup := testSites(t)
 	dup[1].Aliases = []string{"blog.example.com"}

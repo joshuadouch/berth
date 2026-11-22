@@ -143,6 +143,14 @@ func (e *Engine) renderable(ctx context.Context) ([]model.Site, error) {
 	if err != nil {
 		return nil, err
 	}
+	plans := map[string]model.Plan{}
+	if accts, err := e.Store.Accounts(ctx); err == nil {
+		for _, a := range accts {
+			if p, ok := e.Store.AccountPlan(ctx, a.ID); ok {
+				plans[a.ID] = p
+			}
+		}
+	}
 	var out []model.Site
 	for _, s := range sites {
 		if s.Status == model.StatusDeleting || s.Status == model.StatusProvisioning && !userExists(s.User()) {
@@ -157,6 +165,9 @@ func (e *Engine) renderable(ctx context.Context) ([]model.Site, error) {
 			if _, err := os.Stat(e.Paths().CertFile(s.Name)); err != nil {
 				s.TLS.Status = model.TLSPending
 			}
+		}
+		if p, ok := plans[s.AccountID]; ok && !p.AllowShell {
+			s.NoShell = true
 		}
 		out = append(out, s)
 	}

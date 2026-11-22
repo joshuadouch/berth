@@ -132,6 +132,9 @@ func (e *Engine) CreateSite(ctx context.Context, req CreateRequest, author strin
 	} else {
 		s.WP = nil
 	}
+	if err := e.applyPlan(ctx, &s, true); err != nil {
+		return CreateResult{}, err
+	}
 	if err := e.checkSite(ctx, &s, true); err != nil {
 		return CreateResult{}, err
 	}
@@ -180,6 +183,11 @@ func (e *Engine) provision(ctx context.Context, s model.Site, adminPW string, lo
 		logf("Creating database %s", s.DB.Name)
 		if err := e.ensureDB(ctx, *s.DB); err != nil {
 			return err
+		}
+		if p, ok := e.Store.AccountPlan(ctx, s.AccountID); ok && p.DBConnections > 0 {
+			if err := e.dbLimit(ctx, *s.DB, p.DBConnections); err != nil {
+				logf("Could not limit database connections: %v", err)
+			}
 		}
 	}
 	if err := e.syncSFTP(ctx, s); err != nil {
@@ -273,6 +281,9 @@ func (e *Engine) UpdateSite(ctx context.Context, in model.Site, replaceURLs bool
 	next.PHP, next.NoMonitor = in.PHP, in.NoMonitor
 	if next.Type == model.TypeWordPress {
 		next.FrontController = true
+	}
+	if err := e.applyPlan(ctx, &next, false); err != nil {
+		return cur, 0, err
 	}
 	if err := e.checkSite(ctx, &next, false); err != nil {
 		return cur, 0, err
