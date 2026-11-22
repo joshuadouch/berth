@@ -14,7 +14,7 @@ export default function MyAccount({ me }: { me: Me }) {
             <tr><td className="muted">Contact email</td><td>{me.account.email || me.user.email || '—'}</td></tr>
             <tr><td className="muted">Username</td><td className="mono">{me.user.username}</td></tr>
           </tbody></table>
-          <small className="help">To change your plan or contact details, get in touch with your host.</small>
+          <small className="help">To change your plan or contact details, get in touch{me.brand?.support_email ? <> at <a href={'mailto:' + me.brand.support_email}>{me.brand.support_email}</a></> : ' with your host'}{me.brand?.support_url ? <> or visit <a href={me.brand.support_url} target="_blank" rel="noreferrer">support</a></> : ''}.</small>
         </div></div>
         {me.usage && <UsageCard u={me.usage} title="Your plan" />}
       </div>

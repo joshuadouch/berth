@@ -150,6 +150,8 @@ func (s *Server) Handler() http.Handler {
 	ad("GET /api/accounts", s.listAccounts)
 	ad("POST /api/accounts", s.createAccount)
 	ad("GET /api/accounts/{id}", s.getAccount)
+	ad("POST /api/accounts/{id}/sign-in-as", s.signInAs)
+	a("POST /api/sign-in-as/return", s.signInAsReturn)
 	ad("PUT /api/accounts/{id}", s.updateAccount)
 	ad("DELETE /api/accounts/{id}", s.deleteAccount)
 	ad("POST /api/accounts/{id}/users", s.createUser)

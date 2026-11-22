@@ -73,7 +73,7 @@ func (p *Plugin) Info() plugin.Info {
 			{Key: "nameservers", Label: "Nameservers", Type: plugin.Text, Section: "Zones", Required: true, Placeholder: "ns1.example.net, ns2.example.net", Help: "The names customers set at their registrar, primary first."},
 			{Key: "hostmaster", Label: "Hostmaster email", Type: plugin.Text, Section: "Zones", Placeholder: "hostmaster@example.net", Help: "Goes in every zone's SOA record."},
 			{Key: "ttl", Label: "Default TTL (seconds)", Type: plugin.Number, Section: "Zones", Default: 3600},
-			{Key: "ipv4", Label: "This server's public IPv4", Type: plugin.Text, Section: "Site records", Placeholder: "203.0.113.10"},
+			{Key: "ipv4", Label: "This server's public IPv4", Type: plugin.Text, Section: "Site records", Placeholder: "203.0.113.10", Help: "Blank uses the address under Settings → Customers."},
 			{Key: "ipv6", Label: "This server's public IPv6", Type: plugin.Text, Section: "Site records", Placeholder: "2001:db8::10"},
 			{Key: "auto_records", Label: "Add records for new sites", Type: plugin.Bool, Section: "Site records", Default: true, Help: "When a site's domain is in one of its account's zones, point it at this server (unless the name already has a record)."},
 		},
@@ -172,6 +172,24 @@ func (p *Plugin) Init(h *plugin.Host) http.Handler {
 	return m
 }
 
+// config loads the settings, with the server's public addresses from
+// Settings → Customers when the plugin has none of its own.
+func (p *Plugin) config(ctx context.Context) (plugin.Config, error) {
+	c, err := p.host.Config(ctx)
+	if err != nil {
+		return c, err
+	}
+	if st, err := p.host.Store.Settings(ctx); err == nil {
+		if c.Str("ipv4") == "" && st.Brand.IPv4 != "" {
+			c["ipv4"] = st.Brand.IPv4
+		}
+		if c.Str("ipv6") == "" && st.Brand.IPv6 != "" {
+			c["ipv6"] = st.Brand.IPv6
+		}
+	}
+	return c, nil
+}
+
 // owners loads which account owns each zone.
 func (p *Plugin) owners(ctx context.Context) map[string]Owner {
 	o := map[string]Owner{}
@@ -206,7 +224,7 @@ func (p *Plugin) mayUse(w http.ResponseWriter, r *http.Request) (string, Owner, 
 		plugin.WriteErr(w, 404, "no such zone")
 		return "", o, nil, false
 	}
-	c, err := p.host.Config(r.Context())
+	c, err := p.config(r.Context())
 	if err != nil {
 		plugin.WriteErr(w, 500, err.Error())
 		return "", o, nil, false
@@ -222,7 +240,7 @@ type infoView struct {
 }
 
 func (p *Plugin) info(w http.ResponseWriter, r *http.Request) {
-	c, err := p.host.Config(r.Context())
+	c, err := p.config(r.Context())
 	if err != nil {
 		plugin.WriteErr(w, 500, err.Error())
 		return
@@ -246,7 +264,7 @@ type zoneRow struct {
 func (p *Plugin) listZones(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	u := plugin.User(r)
-	c, err := p.host.Config(ctx)
+	c, err := p.config(ctx)
 	if err != nil {
 		plugin.WriteErr(w, 500, err.Error())
 		return
@@ -315,7 +333,7 @@ func (p *Plugin) createZone(w http.ResponseWriter, r *http.Request) {
 	if u.IsAdmin() && in.Account != "" {
 		account = in.Account
 	}
-	c, err := p.host.Config(ctx)
+	c, err := p.config(ctx)
 	if err != nil {
 		plugin.WriteErr(w, 500, err.Error())
 		return
@@ -650,7 +668,7 @@ func (p *Plugin) sync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	c, err := p.host.Config(ctx)
+	c, err := p.config(ctx)
 	if err != nil {
 		plugin.WriteErr(w, 500, err.Error())
 		return
@@ -745,7 +763,7 @@ func (p *Plugin) siteStatus(w http.ResponseWriter, r *http.Request) {
 		plugin.WriteErr(w, 404, "no such site")
 		return
 	}
-	c, err := p.host.Config(ctx)
+	c, err := p.config(ctx)
 	if err != nil {
 		plugin.WriteErr(w, 500, err.Error())
 		return
@@ -788,7 +806,7 @@ func (p *Plugin) siteStatus(w http.ResponseWriter, r *http.Request) {
 // SiteChanged implements plugin.SiteWatcher: names a site gains get A/AAAA
 // records in the account's zone, and names it loses have them removed.
 func (p *Plugin) SiteChanged(ctx context.Context, old, cur *model.Site, logf func(string, ...any)) {
-	c, err := p.host.Config(ctx)
+	c, err := p.config(ctx)
 	if err != nil || !c.Bool("auto_records") || c.Str("ipv4") == "" && c.Str("ipv6") == "" {
 		return
 	}

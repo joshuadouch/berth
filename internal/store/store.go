@@ -195,6 +195,12 @@ func (s *Store) SetKV(ctx context.Context, key string, v any) error {
 	return err
 }
 
+// DeleteKV removes a stored value.
+func (s *Store) DeleteKV(ctx context.Context, key string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM kv WHERE key=?`, key)
+	return err
+}
+
 // Settings returns the panel settings with defaults filled in.
 func (s *Store) Settings(ctx context.Context) (model.Settings, error) {
 	st := model.Settings{BackupEnabled: true}

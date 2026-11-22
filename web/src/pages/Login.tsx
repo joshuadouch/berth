@@ -3,7 +3,7 @@ import { get, post } from '../api';
 import { ErrorBox, Field, Logo } from '../ui';
 
 export default function Login({ onDone }: { onDone: () => void }) {
-  const [setup, setSetup] = useState<{ needs_setup: boolean; name: string; access_enabled: boolean } | null>(null);
+  const [setup, setSetup] = useState<{ needs_setup: boolean; name: string; brand: string; access_enabled: boolean } | null>(null);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -33,9 +33,9 @@ export default function Login({ onDone }: { onDone: () => void }) {
   if (!setup) return <div className="login"><ErrorBox error={err} /></div>;
   return (
     <div className="login">
-      <div className="brand" style={{ justifyContent: 'center', fontSize: 20, padding: '0 0 24px' }}><Logo />Berth</div>
+      <div className="brand" style={{ justifyContent: 'center', fontSize: 20, padding: '0 0 24px' }}><Logo />{setup.brand || 'Berth'}</div>
       <form className="card" onSubmit={submit}>
-        <div className="ch"><h3>{setup.needs_setup ? 'Create the first admin' : `Sign in to ${setup.name}`}</h3></div>
+        <div className="ch"><h3>{setup.needs_setup ? 'Create the first admin' : `Sign in to ${setup.brand || setup.name}`}</h3></div>
         <div className="cb">
           <ErrorBox error={err} />
           {setup.needs_setup && <div className="note">This account manages every site on this server. Your email is also used as the default WordPress admin email, and for Cloudflare Access sign-in if you set it up later.</div>}

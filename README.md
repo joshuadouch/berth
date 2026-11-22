@@ -14,6 +14,13 @@ or Cloudflare. Admins see every account and can move a site between them.
 Panels from before accounts existed are moved to one account owned by the
 existing admin on the first start.
 
+Under **Settings → Customers** you set what customers see: the panel's name
+(instead of Berth), a support email and link, and the server's public
+addresses, which new customers are shown on a getting-started card. On an
+account's page, **Sign in as customer** shows the panel exactly as that
+customer sees it, with a banner to go back; their password and two-factor
+settings stay out of reach meanwhile.
+
 **Plans** (Platform → Plans) are hosting packages. An account on a plan is held
 to its limits: number of sites, disk space for files and databases (over it,
 no new sites or uploads), DNS domains, domains per site, and per-site PHP
