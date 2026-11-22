@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ago, bytes, get, SiteRow } from '../api';
-import { Badge, ErrorBox, Icon, Loading, StatusBadge, TypeBadge, useLoad } from '../ui';
+import { Badge, ErrorBox, Icon, Loading, SiteAvatar, StatusBadge, TypeBadge, useLoad } from '../ui';
 
 export default function Sites() {
   const { data, error } = useLoad(() => get<SiteRow[]>('/sites'), [], 10000);
@@ -27,7 +27,8 @@ export default function Sites() {
             <thead><tr><th>Site</th><th>Type</th><th>PHP</th><th>Disk</th><th>Last backup</th><th>Status</th></tr></thead>
             <tbody>{rows.map((s) => (
               <tr key={s.id} className="click" onClick={() => nav('/sites/' + s.id)}>
-                <td><b>{s.domain}</b>{(s.aliases?.length ?? 0) > 0 && <span className="dim"> +{s.aliases!.length}</span>}<div className="dim mono" style={{ fontSize: 11 }}>{s.name}</div></td>
+                <td><div className="row" style={{ gap: 12, alignItems: 'center' }}><SiteAvatar name={s.domain} />
+                  <div><b>{s.domain}</b>{(s.aliases?.length ?? 0) > 0 && <span className="dim"> +{s.aliases!.length}</span>}<div className="dim mono" style={{ fontSize: 11 }}>{s.name}</div></div></div></td>
                 <td><TypeBadge type={s.type} /></td>
                 <td className="mono">{s.php_version}</td>
                 <td className="muted">{bytes(s.usage.files + s.usage.db)}</td>

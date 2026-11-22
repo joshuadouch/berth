@@ -80,7 +80,7 @@ export default function FilesTab({ s }: { s: Site }) {
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { send(Array.from(e.target.files ?? []).map((f) => ({ file: f, name: f.name }))); e.target.value = ''; }} />
         </div>
       </div>
-      {progress !== null && <div className="cb" style={{ paddingBottom: 0 }}><div className="bar"><i style={{ width: progress + '%', background: '#2dd4bf' }} /></div><small className="help">Uploading… {progress}%</small></div>}
+      {progress !== null && <div className="cb" style={{ paddingBottom: 0 }}><div className="bar"><i style={{ width: progress + '%', background: 'var(--accent)' }} /></div><small className="help">Uploading… {progress}%</small></div>}
       {err ? <div className="cb" style={{ paddingBottom: 0 }}><ErrorBox error={err} /></div> : null}
       {!list.data ? (list.error ? <div className="cb"><ErrorBox error={list.error} /></div> : <Loading />) : all.length === 0 ? <div className="empty">This folder is empty. Drop files here to upload them.</div> :
         <table className="fm">

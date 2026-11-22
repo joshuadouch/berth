@@ -103,7 +103,7 @@ function TrafficView({ s, range }: { s: Site; range: Range }) {
           <LineChart t={t} series={[{ name: 'Requests', values: rows.map((h) => h.requests) }]} step={3600} area />
         </div></div>
         <div className="card"><div className="ch"><h3>Bandwidth per hour</h3></div><div className="cb">
-          <LineChart t={t} series={[{ name: 'Bandwidth', values: rows.map((h) => h.bytes), color: SERIES[2] }]} fmt={fmtBytes} step={3600} area />
+          <LineChart t={t} series={[{ name: 'Bandwidth', values: rows.map((h) => h.bytes), color: SERIES[5] }]} fmt={fmtBytes} step={3600} area />
         </div></div>
       </div>
       <div className="grid2">

@@ -43,6 +43,7 @@ const P: Record<string, ReactNode> = {
   play: <path d="M7 4l13 8-13 8z" />,
   mail: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 7l9 6 9-6" /></>,
   plug: <><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4" /></>,
+  back: <path d="M15 18l-6-6 6-6" />,
   user: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>,
 };
 
@@ -59,6 +60,21 @@ export function Logo() {
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 15h18l-2.5 5h-13zM6.5 15V9h11v6M12 4v5" /></svg>
     </div>
   );
+}
+
+const avatarGradients = [
+  'linear-gradient(135deg,#8f6bff,#5b3df5)', 'linear-gradient(135deg,#ff7ab6,#e5488f)', 'linear-gradient(135deg,#34d3c4,#0ea5a4)',
+  'linear-gradient(135deg,#ffb15c,#f37a20)', 'linear-gradient(135deg,#6aa4ff,#2f6fec)', 'linear-gradient(135deg,#4cd68b,#0f9d58)',
+];
+
+// SiteAvatar is a coloured tile with a site's initials, the same colour every time.
+export function SiteAvatar({ name, small }: { name: string; small?: boolean }) {
+  const clean = name.replace(/^www\./, '');
+  let h = 0;
+  for (const c of clean) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const parts = clean.split('.')[0].split(/[-_]/);
+  const initials = (parts.length > 1 ? parts[0][0] + parts[1][0] : clean.slice(0, 2)).toUpperCase();
+  return <div className={'siteav' + (small ? ' s' : '')} style={{ background: avatarGradients[h % avatarGradients.length] }}>{initials}</div>;
 }
 
 export function Badge({ kind = 'n', children }: { kind?: string; children: ReactNode }) {
@@ -128,7 +144,7 @@ export function ErrorBox({ error }: { error: unknown }) {
   return (
     <div className="err">
       {e.message || String(error)}
-      {e.output && <div className="mono" style={{ marginTop: 8, color: '#fecaca' }}>{e.output}</div>}
+      {e.output && <div className="mono" style={{ marginTop: 8, opacity: .85 }}>{e.output}</div>}
     </div>
   );
 }

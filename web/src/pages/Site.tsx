@@ -5,11 +5,17 @@ import FilesTab from './Files';
 import DatabaseTab from './Database';
 import { AnalyticsTab, AutoUpdateCard, SearchReplaceCard, VulnCard } from './Insights';
 import { BackupBrowser, RestoreModal, Where } from './BackupTools';
-import { Badge, Chips, Copyable, ErrorBox, Field, Icon, JobBadge, JobView, Loading, Modal, StatusBadge, Toggle, TypeBadge, useLoad, useToast } from '../ui';
+import { Badge, Chips, Copyable, ErrorBox, Field, Icon, JobBadge, JobView, Loading, Modal, SiteAvatar, StatusBadge, Toggle, TypeBadge, useLoad, useToast } from '../ui';
 
-const tabs = ['overview', 'analytics', 'files', 'database', 'wordpress', 'backups', 'logs', 'settings', 'activity'] as const;
-type Tab = typeof tabs[number];
-const tabLabel: Record<Tab, string> = { overview: 'Overview', analytics: 'Analytics', files: 'Files', database: 'Database', settings: 'Settings', wordpress: 'WordPress', backups: 'Backups', logs: 'Logs', activity: 'Activity' };
+export const tabs = ['overview', 'analytics', 'files', 'database', 'wordpress', 'backups', 'logs', 'settings', 'activity'] as const;
+export type Tab = typeof tabs[number];
+export const tabIcon: Record<Tab, string> = { overview: 'dash', analytics: 'pulse', files: 'folder', database: 'db', wordpress: 'wp', backups: 'backup', logs: 'file', settings: 'set', activity: 'hist' };
+// visibleTabs are the site sections that apply to a site in its current state.
+export function visibleTabs(s: Site): Tab[] {
+  const ready = s.status === 'active' || s.status === 'error';
+  return tabs.filter((t) => (t !== 'wordpress' || s.type === 'wordpress') && (t !== 'database' || (!!s.db && ready)) && (t !== 'files' || ready) && (t !== 'analytics' || ready));
+}
+export const tabLabel: Record<Tab, string> = { overview: 'Overview', analytics: 'Analytics', files: 'Files', database: 'Database', settings: 'Settings', wordpress: 'WordPress', backups: 'Backups', logs: 'Logs', activity: 'Activity' };
 
 export default function SitePage() {
   const { id = '' } = useParams();
@@ -20,28 +26,39 @@ export default function SitePage() {
   const toast = useToast();
   if (!d.data) return d.error ? <ErrorBox error={d.error} /> : <Loading />;
   const s = d.data.site;
-  const ready = s.status === 'active' || s.status === 'error';
-  const visible = tabs.filter((t) => (t !== 'wordpress' || s.type === 'wordpress') && (t !== 'database' || (!!s.db && ready)) && (t !== 'files' || ready) && (t !== 'analytics' || ready));
+  const visible = visibleTabs(s);
   const purge = () => post<{ hosts: number }>('/sites/' + s.id + '/cloudflare/purge').then((r) => toast(`Cloudflare cache cleared for ${r.hosts} hostname${r.hosts === 1 ? '' : 's'}`)).catch((e) => toast(e.message, true));
   const startJob = (p: Promise<{ job_id: number }>, msg?: string) => p.then((r) => { setJob(r.job_id); if (msg) toast(msg); d.reload(); }).catch((e) => toast(e.message, true));
   return (
     <>
-      <div className="head">
-        <div style={{ minWidth: 0 }}>
-          <div className="sitehead"><h1>{s.domain}</h1><TypeBadge type={s.type} /><StatusBadge status={s.status} enabled={s.enabled} />
-            {d.data.uptime?.down && <Badge kind="b">Down</Badge>}
-            {d.data.vulns > 0 && <span className="click" onClick={() => setSp({ tab: 'wordpress' })}><Badge kind="b"><Icon name="lock" size={11} />{d.data.vulns} vulnerabilit{d.data.vulns === 1 ? 'y' : 'ies'}</Badge></span>}</div>
-          <div className="sub">{s.name} · PHP {s.php_version}{s.aliases?.length ? ' · also ' + s.aliases.join(', ') : ''}</div>
+      <div className="hero">
+        <div className="head">
+          <div className="row" style={{ gap: 16, alignItems: 'center', minWidth: 0 }}>
+            <SiteAvatar name={s.domain} />
+            <div style={{ minWidth: 0 }}>
+              <div className="sitehead"><h1>{s.domain}</h1><TypeBadge type={s.type} /><StatusBadge status={s.status} enabled={s.enabled} />
+                {d.data.uptime?.down && <Badge kind="b">● Down</Badge>}
+                {d.data.vulns > 0 && <span className="click" onClick={() => setSp({ tab: 'wordpress' })}><Badge kind="b"><Icon name="lock" size={11} />{d.data.vulns} vulnerabilit{d.data.vulns === 1 ? 'y' : 'ies'}</Badge></span>}</div>
+              <div className="sub">{s.name}{s.aliases?.length ? ' · also ' + s.aliases.join(', ') : ''}</div>
+            </div>
+          </div>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            {s.status === 'error' && <button className="btn white" onClick={() => startJob(post('/sites/' + s.id + '/retry'), 'Retrying')}><Icon name="sync" />Retry</button>}
+            {d.data.cloudflare && s.status === 'active' && <button className="btn light" onClick={purge} title="Clear Cloudflare's cache for this site's domains"><Icon name="cloud" />Clear cache</button>}
+            <a className="btn light" href={siteURL(s)} target="_blank" rel="noreferrer"><Icon name="ext" />Visit site</a>
+            {s.type === 'wordpress' && s.status === 'active' && <a className="btn white" href={siteURL(s) + '/wp-admin/'} target="_blank" rel="noreferrer"><Icon name="wp" />WP admin</a>}
+          </div>
         </div>
-        <div className="row" style={{ gap: 8 }}>
-          {s.status === 'error' && <button className="btn p" onClick={() => startJob(post('/sites/' + s.id + '/retry'), 'Retrying')}><Icon name="sync" />Retry</button>}
-          {d.data.cloudflare && s.status === 'active' && <button className="btn" onClick={purge} title="Clear Cloudflare's cache for this site's domains"><Icon name="cloud" />Clear cache</button>}
-          <a className="btn" href={siteURL(s)} target="_blank" rel="noreferrer"><Icon name="ext" />Visit</a>
-          {s.type === 'wordpress' && s.status === 'active' && <a className="btn" href={siteURL(s) + '/wp-admin/'} target="_blank" rel="noreferrer"><Icon name="wp" />WP admin</a>}
+        <div className="herostats">
+          <div>PHP<b>{s.php_version}</b></div>
+          <div>Disk<b>{bytes(d.data.usage.files + d.data.usage.db)}</b></div>
+          <div>Last backup<b>{d.data.backups[0] ? ago(d.data.backups[0].time) : 'none'}</b></div>
+          <div>Uptime check<b>{!d.data.uptime ? 'not yet' : d.data.uptime.down ? 'down ' + ago(d.data.uptime.since).replace(' ago', '') : 'up ' + ago(d.data.uptime.since).replace(' ago', '')}</b></div>
+          <div>HTTPS<b>{s.https ? 'On' : 'Off'}</b></div>
         </div>
       </div>
       {s.status === 'error' && <div className="err">Creating this site failed: {s.status_error}. Fix the cause (see the Activity tab) and press Retry.</div>}
-      <div className="tabs">{visible.map((t) => <span key={t} className={t === tab ? 'on' : ''} onClick={() => setSp(t === 'overview' ? {} : { tab: t })}>{tabLabel[t]}</span>)}</div>
+      <div className="tabs sitetabs">{visible.map((t) => <span key={t} className={t === tab ? 'on' : ''} onClick={() => setSp(t === 'overview' ? {} : { tab: t })}>{tabLabel[t]}</span>)}</div>
       {tab === 'analytics' && <AnalyticsTab s={s} />}
       {tab === 'overview' && <Overview d={d.data} reload={d.reload} startJob={startJob} />}
       {tab === 'settings' && <SettingsTab s={s} sftp={d.data.sftp_available} onSaved={(j) => { d.reload(); if (j) setJob(j); }} />}
@@ -339,7 +356,7 @@ function WordPressTab({ s, startJob, reload }: { s: Site; startJob: (p: Promise<
         <table><thead><tr><th>Name</th><th>Version</th><th>Status</th></tr></thead><tbody>
           {[...(w.plugins ?? []).map((p) => ({ ...p, kind: 'plugin' })), ...(w.themes ?? []).map((p) => ({ ...p, kind: 'theme' }))].map((p) => (
             <tr key={p.kind + p.name}><td><b>{p.title || p.name}</b><div className="dim" style={{ fontSize: 11 }}>{p.kind}</div></td>
-              <td className="mono">{p.version}{p.update && <div style={{ color: '#fcd34d' }}>→ {p.update}</div>}</td>
+              <td className="mono">{p.version}{p.update && <div style={{ color: 'var(--warn)' }}>→ {p.update}</div>}</td>
               <td>{p.status === 'active' ? <Badge kind="g">Active</Badge> : <Badge kind="n">{p.status}</Badge>}</td></tr>
           ))}
           {(w.plugins?.length ?? 0) + (w.themes?.length ?? 0) === 0 && <tr><td colSpan={3} className="muted">None installed.</td></tr>}

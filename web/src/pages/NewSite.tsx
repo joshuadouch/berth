@@ -217,7 +217,7 @@ function UploadSlot({ label, hint, accept, value, onChange, onBusy }: { label: s
   return (
     <Field label={label} help={hint}>
       <div className="upslot" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pick(e.dataTransfer.files[0]); }}>
-        {pct !== null ? <div style={{ flex: 1 }}><div className="bar"><i style={{ width: pct + '%', background: '#2dd4bf' }} /></div><small className="help">Uploading… {pct}%</small></div>
+        {pct !== null ? <div style={{ flex: 1 }}><div className="bar"><i style={{ width: pct + '%', background: 'var(--accent)' }} /></div><small className="help">Uploading… {pct}%</small></div>
           : value ? <><Icon name={value.kind === 'db' ? 'db' : 'zip'} size={15} /><span className="mono" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{value.name}</span><span className="dim">{bytes(value.size)}</span>
             <button type="button" className="btn s ghost" title="Remove" onClick={remove}><Icon name="trash" size={13} /></button></>
           : <><button type="button" className="btn s" onClick={() => input.current?.click()}><Icon name="up" size={13} />Choose file</button><span className="dim">or drop it here</span></>}
