@@ -13,7 +13,7 @@ export interface Site {
   import?: { files: string; files_name: string; db: string; db_name: string };
 }
 export interface SiteTLS { status: 'none' | 'pending' | 'active' | 'error' | ''; error?: string; domains?: string[]; issued?: string; expires?: string; fails?: number; next_try?: string }
-export interface BrandSettings { name: string; support_email: string; support_url: string; ipv4: string; ipv6: string }
+export interface BrandSettings { name: string; support_email: string; support_url: string; ipv4: string; ipv6: string; logo?: string; favicon?: string }
 export interface ACMESettings { email: string; staging: boolean; off: boolean }
 // Who serves a site to visitors: Berth with Let's Encrypt, a proxy in front, or plain HTTP.
 export type Serve = 'local' | 'proxy' | 'http';
@@ -39,7 +39,8 @@ export interface Event { id: number; time: string; level: string; kind: string; 
 export interface Service { name: string; label: string; active: string }
 export interface Disk { path: string; total: number; free: number }
 export interface User { id: string; username: string; email: string; totp_enabled: boolean; role: 'admin' | 'customer'; account_id: string }
-export interface Account { id: string; name: string; email: string; notes: string; suspended: boolean; plan_id: string; created_at: string }
+export interface Account { id: string; name: string; email: string; notes: string; suspended: boolean; plan_id: string; external_id?: string; created_at: string }
+export interface APIToken { id: string; name: string; scope: 'provisioning' | 'full'; prefix: string; created_by: string; created_at: string; last_used?: string }
 export interface Plan {
   id: string; name: string; max_sites: number; disk_mb: number; dns_zones: number; max_domains: number; memory_mb: number; workers: number;
   upload_mb: number; db_connections: number; cpu_percent: number; ram_mb: number; max_processes: number; allow_shell: boolean; no_sftp: boolean;
@@ -103,6 +104,15 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
 }
 
 export const get = <T = any>(p: string) => api<T>('GET', p);
+
+// putFile sends a file as the raw request body.
+export async function putFile<T = any>(path: string, file: File): Promise<T> {
+  const res = await fetch('/api' + path, { method: 'PUT', credentials: 'same-origin', headers: { 'X-Berth': '1' }, body: file });
+  let data: any = null;
+  try { data = await res.json(); } catch { /* empty */ }
+  if (!res.ok) throw new ApiError(res.status, data?.error || res.statusText, data);
+  return data as T;
+}
 
 // upload sends files as multipart; names may hold folders ("dir/file").
 export async function upload<T = void>(path: string, files: { file: File; name: string }[], onProgress?: (pct: number) => void): Promise<T> {

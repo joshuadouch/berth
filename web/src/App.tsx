@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useResponsiveTables } from './responsive';
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { get, PluginView, post, setUnauthorizedHandler, SiteDetail, SiteRow } from './api';
-import { Icon, Logo, PageBoundary, SiteAvatar, ToastProvider } from './ui';
+import { BrandMark, Icon, PageBoundary, SiteAvatar, ToastProvider, useFavicon } from './ui';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Sites from './pages/Sites';
@@ -111,6 +111,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [menu, setMenu] = useState(false);
   useEffect(() => setMenu(false), [loc.pathname]);
   useEffect(() => { document.title = me.brand?.name || 'Berth'; }, [me.brand?.name]);
+  useFavicon(me.brand?.favicon);
   useEffect(() => {
     if (!menu) return;
     const h = (e: KeyboardEvent) => e.key === 'Escape' && setMenu(false);
@@ -145,7 +146,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     <>
       {menu && <div className="scrim" onClick={() => setMenu(false)} />}
       <aside className={'side' + (menu ? ' open' : '')}>
-        <div className="brand"><Logo />{me.brand?.name || 'Berth'}{admin && <span className="badge n" style={{ marginLeft: 'auto', fontSize: 10 }}>{me.version}</span>}</div>
+        <div className="brand"><BrandMark logo={me.brand?.logo} name={me.brand?.name} />{admin && <span className="badge n" style={{ marginLeft: 'auto', fontSize: 10 }}>{me.version}</span>}</div>
         {inSite ? <SiteNav id={siteID} /> : <nav className="nav">
           {nav.map((n) => n.length === 1
             ? <div key={n[0]} className="navlabel">{n[0]}</div>
@@ -209,6 +210,9 @@ export default function App() {
   useEffect(() => {
     setUnauthorizedHandler(() => setMe(null));
     load();
+    // Settings fires this after the brand changes.
+    window.addEventListener('berth-me', load);
+    return () => window.removeEventListener('berth-me', load);
   }, []);
   if (me === undefined) return null;
   return (

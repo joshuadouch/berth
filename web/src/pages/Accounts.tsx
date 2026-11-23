@@ -114,6 +114,7 @@ export function AccountPage() {
               <select className="input" value={form.plan_id} onChange={(e) => set({ plan_id: e.target.value })}>
                 <option value="">No plan (no limits)</option>
                 {plans.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+            {data.external_id && <Field label="Billing system ID" help="Set through the provisioning API."><input className="input mono" value={data.external_id} readOnly /></Field>}
             <Field label="Notes (only admins see these)"><textarea className="input" rows={3} value={form.notes} onChange={(e) => set({ notes: e.target.value })} /></Field>
             {!own && <Toggle on={form.suspended} onChange={(v) => set({ suspended: v })} label="Suspended" help="Suspended accounts are signed out and cannot sign in. Their sites keep running." />}
           </div></div>

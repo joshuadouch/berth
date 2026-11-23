@@ -388,6 +388,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	// Cloudflare lives in its plugin now; keep whatever is left here as is.
 	st.CloudflareToken, st.AccessTeam, st.AccessAUD, st.AccessEmails = cur.CloudflareToken, cur.AccessTeam, cur.AccessAUD, cur.AccessEmails
+	// The logo and favicon change through their own upload routes.
+	st.Brand.Logo, st.Brand.Favicon = cur.Brand.Logo, cur.Brand.Favicon
 	if err := st.Normalize(); err != nil {
 		writeErr(w, 400, err.Error())
 		return

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { exposureLabel, get, HalyardInfo, post, put, Settings as S, vipLabel } from '../api';
-import { Badge, Chips, ErrorBox, Field, Loading, Toggle, useLoad, useToast } from '../ui';
+import { APIToken, del, exposureLabel, get, HalyardInfo, post, put, putFile, Settings as S, vipLabel } from '../api';
+import { Badge, BrandMark, Chips, Copyable, ErrorBox, Field, Loading, Toggle, useLoad, useToast } from '../ui';
 import type { Me } from '../me';
 
 interface SettingsView { settings: S; halyard_token_set: boolean; s3_secret_set: boolean; s3_error: string; installed_php: string[]; php_versions: string[] }
@@ -81,6 +81,7 @@ export default function Settings({ me }: { me: Me }) {
           <MonitoringCard f={f} set={set} />
           <ACMECard f={f} set={set} />
           <BrandCard f={f} set={set} />
+          <TokensCard />
           <AccountCard me={me} />
         </div>
       </div>
@@ -110,6 +111,93 @@ function BrandCard({ f, set }: { f: S; set: (p: Partial<S>) => void }) {
         <Field label="Public IPv4" help="Customers point their domains here."><input className="input mono" value={b.ipv4} onChange={(e) => setb({ ipv4: e.target.value })} /></Field>
         <Field label="Public IPv6"><input className="input mono" value={b.ipv6} onChange={(e) => setb({ ipv6: e.target.value })} /></Field>
       </div>
+      <div className="grid2">
+        <BrandImage kind="logo" value={b.logo} name={b.name} onChange={(v) => setb({ logo: v })}
+          help="Replaces the icon and panel name in the sidebar and on the sign-in page. PNG, JPEG, WebP or SVG, up to 1 MB. A wide logo about 180 by 32 pixels, light on dark, fits best." />
+        <BrandImage kind="favicon" value={b.favicon} name={b.name} onChange={(v) => setb({ favicon: v })}
+          help="The browser tab's icon. PNG, ICO or SVG, square, 32 by 32 pixels or larger." />
+      </div>
+    </div></div>
+  );
+}
+
+// BrandImage uploads or removes the logo or favicon. It saves at once.
+function BrandImage({ kind, value, name, onChange, help }: { kind: 'logo' | 'favicon'; value?: string; name: string; onChange: (v: string) => void; help: string }) {
+  const toast = useToast();
+  const [err, setErr] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const file = useRef<HTMLInputElement>(null);
+  const label = kind === 'logo' ? 'Logo' : 'Favicon';
+  const run = async (fn: () => Promise<string>) => {
+    setErr(null); setBusy(true);
+    try {
+      const v = await fn();
+      onChange(v);
+      window.dispatchEvent(new Event('berth-me'));
+      toast(v ? label + ' updated' : label + ' removed');
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+  const pick = (file?: File) => file && run(async () => (await putFile<Record<string, string>>('/settings/brand/' + kind, file))[kind]);
+  return (
+    <Field label={label} help={help}>
+      <ErrorBox error={err} />
+      <div className={'brandpreview' + (kind === 'favicon' ? ' fav' : '')}>
+        {kind === 'logo' ? <div className="brand" style={{ padding: 0 }}><BrandMark logo={value} name={name} /></div>
+          : value ? <img src={'/api/brand/favicon?v=' + encodeURIComponent(value)} alt="" width={32} height={32} /> : <span className="muted">Berth's icon</span>}
+      </div>
+      <div className="row" style={{ gap: 8, marginTop: 8 }}>
+        <button className="btn" disabled={busy} onClick={() => file.current?.click()}>{value ? 'Replace' : 'Upload'}</button>
+        <input ref={file} type="file" hidden accept={kind === 'logo' ? 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml' : 'image/png,image/x-icon,image/vnd.microsoft.icon,image/svg+xml,image/gif,.ico'}
+            onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
+        {value && <button className="btn" disabled={busy} onClick={() => run(async () => { await del('/settings/brand/' + kind); return ''; })}>Use Berth's</button>}
+      </div>
+    </Field>
+  );
+}
+
+// TokensCard manages API tokens for billing systems and scripts.
+function TokensCard() {
+  const { data, error, reload } = useLoad(() => get<APIToken[]>('/tokens'));
+  const [name, setName] = useState('');
+  const [scope, setScope] = useState<'provisioning' | 'full'>('provisioning');
+  const [created, setCreated] = useState<{ name: string; token: string } | null>(null);
+  const [err, setErr] = useState<unknown>(null);
+  const create = async () => {
+    setErr(null);
+    try {
+      const r = await post<{ name: string; token: string }>('/tokens', { name, scope });
+      setCreated(r); setName(''); reload();
+    } catch (e) { setErr(e); }
+  };
+  const revoke = async (t: APIToken) => {
+    if (!window.confirm('Revoke the API token "' + t.name + '"? Anything using it stops working.')) return;
+    setErr(null);
+    try { await del('/tokens/' + t.id); reload(); } catch (e) { setErr(e); }
+  };
+  return (
+    <div className="card"><div className="ch"><h3>API tokens</h3></div><div className="cb">
+      <p className="muted" style={{ marginBottom: 12 }}>For a billing system (WHMCS, Blesta, your own) to create accounts on a plan, change plans, suspend and terminate them, and sign customers in. Send it as <span className="mono">Authorization: Bearer &lt;token&gt;</span>. See the README's "Provisioning API".</p>
+      <ErrorBox error={err || error} />
+      {created && <div className="note" style={{ marginBottom: 12 }}>
+        <b>{created.name}</b>: copy the token now. It is not shown again.
+        <div style={{ marginTop: 6 }}><Copyable value={created.token} /></div>
+      </div>}
+      {data && data.length > 0 && <table style={{ marginBottom: 12 }}>
+        <thead><tr><th>Token</th><th>Access</th><th /></tr></thead>
+        <tbody>{data.map((t) => <tr key={t.id}>
+          <td><b>{t.name}</b><div className="muted" style={{ fontSize: 12 }}>Last used {t.last_used && !t.last_used.startsWith('0001') ? new Date(t.last_used).toLocaleString() : 'never'}</div></td>
+          <td><Badge kind={t.scope === 'full' ? 'w' : 'n'}>{t.scope === 'full' ? 'Whole API' : 'Provisioning'}</Badge></td>
+          <td style={{ textAlign: 'right' }}><button className="btn s" onClick={() => revoke(t)}>Revoke</button></td>
+        </tr>)}</tbody>
+      </table>}
+      <div className="grid2">
+        <Field label="New token name"><input className="input" value={name} placeholder="WHMCS" onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label="Access"><select className="input" value={scope} onChange={(e) => setScope(e.target.value as 'provisioning' | 'full')}>
+          <option value="provisioning">Provisioning API only</option>
+          <option value="full">Whole API (acts as you)</option>
+        </select></Field>
+      </div>
+      <button className="btn p" disabled={!name.trim()} onClick={create}>Create token</button>
     </div></div>
   );
 }

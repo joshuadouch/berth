@@ -30,6 +30,7 @@ func (s *Server) getSetup(w http.ResponseWriter, r *http.Request) {
 	st, _ := s.Store.Settings(r.Context())
 	writeJSON(w, 200, map[string]any{
 		"needs_setup": n == 0, "version": s.Version, "name": s.Cfg.Name, "brand": st.Brand.Name,
+		"logo": st.Brand.Logo, "favicon": st.Brand.Favicon,
 		"access_enabled": team != "" && aud != "",
 	})
 }
