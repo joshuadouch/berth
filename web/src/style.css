@@ -422,3 +422,8 @@ a.mon-tile:hover{border-color:var(--line2)}
 .vulnmain{flex:1;min-width:0;overflow-wrap:anywhere}
 .vulnrow>.badge{flex:none;margin-top:2px;white-space:nowrap}
 .vulnmain a{white-space:nowrap;display:inline-block}
+.brandlogo{display:block;max-height:34px;max-width:100%;min-width:0;flex-shrink:1;object-fit:contain;object-position:left center}
+.side .brand .badge{flex-shrink:0}
+.login .brandlogo{max-height:44px;max-width:240px;background:#1d1147;padding:10px 16px;border-radius:12px;box-sizing:content-box}
+.brandpreview{display:flex;align-items:center;min-height:58px;padding:12px 14px;border-radius:10px;background:#1d1147}
+.brandpreview.fav{background:var(--hover);min-height:58px}

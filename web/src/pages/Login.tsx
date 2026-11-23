@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { get, post } from '../api';
-import { ErrorBox, Field, Logo } from '../ui';
+import { BrandMark, ErrorBox, Field, useFavicon } from '../ui';
 
 export default function Login({ onDone }: { onDone: () => void }) {
-  const [setup, setSetup] = useState<{ needs_setup: boolean; name: string; brand: string; access_enabled: boolean } | null>(null);
+  const [setup, setSetup] = useState<{ needs_setup: boolean; name: string; brand: string; logo?: string; favicon?: string; access_enabled: boolean } | null>(null);
+  const expired = new URLSearchParams(window.location.search).get('link') === 'expired';
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -14,6 +15,8 @@ export default function Login({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => { get('/setup').then(setSetup).catch(setErr); }, []);
+  useFavicon(setup?.favicon);
+  useEffect(() => { if (setup?.brand) document.title = setup.brand; }, [setup?.brand]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -33,11 +36,12 @@ export default function Login({ onDone }: { onDone: () => void }) {
   if (!setup) return <div className="login"><ErrorBox error={err} /></div>;
   return (
     <div className="login">
-      <div className="brand" style={{ justifyContent: 'center', fontSize: 20, padding: '0 0 24px' }}><Logo />{setup.brand || 'Berth'}</div>
+      <div className="brand" style={{ justifyContent: 'center', fontSize: 20, padding: '0 0 24px' }}><BrandMark logo={setup.logo} name={setup.brand} /></div>
       <form className="card" onSubmit={submit}>
         <div className="ch"><h3>{setup.needs_setup ? 'Create the first admin' : `Sign in to ${setup.brand || setup.name}`}</h3></div>
         <div className="cb">
           <ErrorBox error={err} />
+          {expired && !err && <div className="note">That sign-in link has expired or was already used. Sign in with your username and password, or ask for a new link.</div>}
           {setup.needs_setup && <div className="note">This account manages every site on this server. Your email is also used as the default WordPress admin email, and for Cloudflare Access sign-in if you set it up later.</div>}
           <Field label="Username"><input className="input" autoFocus value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" /></Field>
           {setup.needs_setup && <Field label="Email"><input className="input" value={email} onChange={(e) => setEmail(e.target.value)} type="email" /></Field>}

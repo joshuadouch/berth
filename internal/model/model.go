@@ -522,6 +522,10 @@ type BrandSettings struct {
 	// their domains at.
 	IPv4 string `json:"ipv4"`
 	IPv6 string `json:"ipv6"`
+	// Logo and Favicon are the uploaded files' names under the data
+	// directory's brand folder ("" = Berth's own). The panel sets them.
+	Logo    string `json:"logo"`
+	Favicon string `json:"favicon"`
 }
 
 func (b *BrandSettings) normalize() error {
@@ -683,8 +687,11 @@ type Account struct {
 	// Suspended accounts cannot sign in.
 	Suspended bool `json:"suspended"`
 	// PlanID is the hosting plan that limits the account ("" = no limits).
-	PlanID    string    `json:"plan_id"`
-	CreatedAt time.Time `json:"created_at"`
+	PlanID string `json:"plan_id"`
+	// ExternalID is the billing system's ID for the account (service ID,
+	// client ID...), set through the provisioning API. Unique when set.
+	ExternalID string    `json:"external_id,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // Plan is a hosting package: what an account may use. Zero means no limit.
@@ -753,6 +760,10 @@ func Limit(n, limit int) int {
 func (a *Account) Normalize() error {
 	a.Name = strings.TrimSpace(a.Name)
 	a.Email = strings.ToLower(strings.TrimSpace(a.Email))
+	a.ExternalID = strings.TrimSpace(a.ExternalID)
+	if len(a.ExternalID) > 100 {
+		return errors.New("external ID can be at most 100 characters")
+	}
 	if a.Name == "" || len(a.Name) > 100 {
 		return errors.New("account name must be 1-100 characters")
 	}

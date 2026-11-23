@@ -16,7 +16,9 @@ existing admin on the first start.
 
 Under **Settings → Customers** you set what customers see: the panel's name
 (instead of Berth), a support email and link, and the server's public
-addresses, which new customers are shown on a getting-started card. On an
+addresses, which new customers are shown on a getting-started card. You can
+also upload your own **logo** (it replaces Berth's icon and name in the sidebar
+and on the sign-in page) and **favicon** there. On an
 account's page, **Sign in as customer** shows the panel exactly as that
 customer sees it, with a banner to go back; their password and two-factor
 settings stay out of reach meanwhile.
@@ -372,6 +374,36 @@ VPS elsewhere (`ns2`).
 
 Customers then set their domain's nameservers to `ns1.example.net` and
 `ns2.example.net` at their registrar.
+
+## Provisioning API
+
+A billing system (WHMCS, Blesta, HostBill or your own) can create and manage
+customer accounts. Create a token under **Settings → API tokens** and send it
+as `Authorization: Bearer <token>`. A **Provisioning** token may only use
+`/api/provision/`; a **Whole API** token acts as the admin who made it on every
+route. Bad tokens count towards the sign-in lockout.
+
+Every `{id}` below is Berth's account ID or `ext:<external_id>`, the billing
+system's own ID for the service, given when the account is created.
+
+| Call | What it does |
+| --- | --- |
+| `GET /api/provision/plans` | The plans, with their IDs and limits. |
+| `POST /api/provision/accounts` | Create an account and its customer login. Body: `email` (needed), `name`, `plan` (plan ID or name), `external_id`, `username`, `password`, `notes`. A blank username comes from the email, a blank password is generated (20 letters and digits) and returned once. Answers `201` with `account`, `username`, `password` and `login_url`; `409` with `account_id` if the external ID is already taken. |
+| `GET /api/provision/accounts?external_id=…` | Find an account (an empty list if none). |
+| `GET /api/provision/accounts/{id}` | The account with its logins, sites and plan usage. |
+| `PATCH /api/provision/accounts/{id}` | Change `plan` (ID or name, `""` for none), `name`, `email`, `notes` or `external_id`. Fields left out stay. A new plan applies at once. |
+| `POST /api/provision/accounts/{id}/suspend` | Sign the customer out and keep them out. Optional body `{"reason": "…"}` for the activity log. Their sites keep running. |
+| `POST /api/provision/accounts/{id}/unsuspend` | Let them back in. |
+| `POST /api/provision/accounts/{id}/password` | Set the customer's password (`{"password": "…"}`) or, with no body, generate and return one. Signs them out. |
+| `POST /api/provision/accounts/{id}/login-link` | A one-time sign-in link (`url`) valid for 5 minutes, for a "Log in to control panel" button. |
+| `DELETE /api/provision/accounts/{id}` | Terminate. An account with sites is refused (`409`) unless you add `?delete_sites=1`: then it is suspended, each site is deleted after a final backup (`202` with the job IDs), and the account goes once they are gone. |
+
+```bash
+curl -s https://panel.example.net/api/provision/accounts \
+  -H "Authorization: Bearer berth_…" -H "Content-Type: application/json" \
+  -d '{"email":"owner@acme.test","name":"Acme Ltd","plan":"Starter","external_id":"whmcs-42"}'
+```
 
 ## Updating
 

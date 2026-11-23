@@ -164,6 +164,27 @@ func (s *Server) Handler() http.Handler {
 	ad("PUT /api/plugins/{id}/accounts", s.pluginAccounts)
 	mux.Handle("/api/p/{id}/", s.requireAuth(s.pluginGate(s.Plugins.ServeHTTP)))
 
+	ad("GET /api/tokens", s.listTokens)
+	ad("POST /api/tokens", s.createToken)
+	ad("DELETE /api/tokens/{id}", s.deleteToken)
+
+	// Provisioning API for billing systems (see provision.go).
+	ad("GET /api/provision/plans", s.provPlans)
+	ad("GET /api/provision/accounts", s.provListAccounts)
+	ad("POST /api/provision/accounts", s.provCreateAccount)
+	ad("GET /api/provision/accounts/{id}", s.provGetAccount)
+	ad("PATCH /api/provision/accounts/{id}", s.provUpdateAccount)
+	ad("POST /api/provision/accounts/{id}/suspend", s.provSuspend(true))
+	ad("POST /api/provision/accounts/{id}/unsuspend", s.provSuspend(false))
+	ad("POST /api/provision/accounts/{id}/password", s.provPassword)
+	ad("POST /api/provision/accounts/{id}/login-link", s.provLoginLink)
+	ad("DELETE /api/provision/accounts/{id}", s.provTerminate)
+	mux.HandleFunc("GET /api/sso/{token}", s.sso)
+
+	mux.HandleFunc("GET /api/brand/{kind}", s.brandAsset)
+	ad("PUT /api/settings/brand/{kind}", s.putBrandAsset)
+	ad("DELETE /api/settings/brand/{kind}", s.deleteBrandAsset)
+
 	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "no such endpoint")
 	}))
@@ -211,11 +232,32 @@ func spaHandler(ui fs.FS) http.Handler {
 	})
 }
 
-// requireAuth accepts a session cookie or a Cloudflare Access JWT. Mutating
+// requireAuth accepts an API token, a session cookie or a Cloudflare Access JWT. Mutating
 // requests also need the X-Berth header, which browsers will not send
 // cross-site without a CORS preflight we never allow.
 func (s *Server) requireAuth(h http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if raw, ok := bearer(r); ok {
+			// API tokens: no cookie is involved, so no X-Berth header is needed.
+			ip := clientIP(r)
+			if s.limiter.blocked(ip) {
+				writeErr(w, 429, "too many failed attempts; try again in 15 minutes")
+				return
+			}
+			u, t, err := s.tokenUser(r.Context(), raw)
+			if err != nil {
+				s.limiter.fail(ip)
+				writeErr(w, 401, err.Error())
+				return
+			}
+			if !tokenAllows(t, r.URL.Path) {
+				writeErr(w, 403, "this API token may only use /api/provision/")
+				return
+			}
+			ctx := context.WithValue(r.Context(), userKey, u)
+			h(w, r.WithContext(context.WithValue(ctx, tokenKey, t)))
+			return
+		}
 		u, err := s.authenticate(r)
 		if err != nil {
 			writeErr(w, 401, "sign in required")

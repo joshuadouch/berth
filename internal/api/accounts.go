@@ -205,6 +205,12 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if a.ExternalID != "" {
+		if _, err := s.accountByExternalID(r.Context(), a.ExternalID); err == nil {
+			writeErr(w, 409, "an account with this external ID exists")
+			return
+		}
+	}
 	if req.User.Email == "" {
 		req.User.Email = a.Email
 	}
@@ -249,6 +255,7 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	next := cur
 	next.Name, next.Email, next.Notes, next.Suspended, next.PlanID = req.Name, req.Email, req.Notes, req.Suspended, req.PlanID
+	// The external ID belongs to the provisioning API; the panel form leaves it.
 	if err := next.Normalize(); err != nil {
 		writeErr(w, 400, err.Error())
 		return

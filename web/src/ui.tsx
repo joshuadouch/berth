@@ -57,6 +57,22 @@ export function Icon({ name, size = 16 }: { name: string; size?: number }) {
   );
 }
 
+// BrandMark is the panel's logo: an uploaded image, or Berth's icon and name.
+export function BrandMark({ logo, name }: { logo?: string; name?: string }) {
+  if (logo) return <img className="brandlogo" src={'/api/brand/logo?v=' + encodeURIComponent(logo)} alt={name || 'Berth'} />;
+  return <><Logo />{name || 'Berth'}</>;
+}
+
+// useFavicon points the browser tab's icon at the uploaded favicon.
+export function useFavicon(favicon?: string) {
+  useEffect(() => {
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!link) return;
+    if (!link.dataset.berth) link.dataset.berth = link.href;
+    link.href = favicon ? '/api/brand/favicon?v=' + encodeURIComponent(favicon) : link.dataset.berth;
+  }, [favicon]);
+}
+
 export function Logo() {
   return (
     <div className="logo">
