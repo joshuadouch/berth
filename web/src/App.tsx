@@ -146,7 +146,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     <>
       {menu && <div className="scrim" onClick={() => setMenu(false)} />}
       <aside className={'side' + (menu ? ' open' : '')}>
-        <div className="brand"><BrandMark logo={me.brand?.logo} name={me.brand?.name} />{admin && <span className="badge n" style={{ marginLeft: 'auto', fontSize: 10 }}>{me.version}</span>}</div>
+        <div className="brand"><div className="brandstack"><div className="brandrow"><BrandMark logo={me.brand?.logo} name={me.brand?.name} /></div><span className="brandtag">Control Panel</span></div>{admin && <span className="badge n" style={{ marginLeft: 'auto', fontSize: 10 }}>{me.version}</span>}</div>
         {inSite ? <SiteNav id={siteID} /> : <nav className="nav">
           {nav.map((n) => n.length === 1
             ? <div key={n[0]} className="navlabel">{n[0]}</div>
