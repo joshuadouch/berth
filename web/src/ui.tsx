@@ -101,13 +101,13 @@ export function Badge({ kind = 'n', children }: { kind?: string; children: React
   return <span className={'badge ' + kind}>{children}</span>;
 }
 
-export function Toggle({ on, onChange, label, help }: { on: boolean; onChange: (v: boolean) => void; label?: ReactNode; help?: ReactNode }) {
-  const t = <button type="button" className={'toggle' + (on ? ' on' : '')} onClick={() => onChange(!on)} aria-pressed={on} />;
+export function Toggle({ on, onChange, label, help, disabled }: { on: boolean; onChange: (v: boolean) => void; label?: ReactNode; help?: ReactNode; disabled?: boolean }) {
+  const t = <button type="button" className={'toggle' + (on ? ' on' : '')} onClick={() => !disabled && onChange(!on)} aria-pressed={on} disabled={disabled} style={disabled ? { opacity: 0.55, cursor: 'default' } : undefined} />;
   if (!label) return t;
   return (
     <div className="row" style={{ gap: 10, alignItems: 'flex-start', marginBottom: 14 }}>
       {t}
-      <div style={{ cursor: 'pointer' }} onClick={() => onChange(!on)}>
+      <div style={{ cursor: disabled ? 'default' : 'pointer' }} onClick={() => !disabled && onChange(!on)}>
         <div>{label}</div>
         {help && <div className="dim" style={{ fontSize: 11.5 }}>{help}</div>}
       </div>

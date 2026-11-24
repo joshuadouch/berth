@@ -100,6 +100,7 @@ function PluginAccounts({ p, accounts, onSaved }: { p: PluginView; accounts: Acc
   const toast = useToast();
   const [err, setErr] = useState<unknown>(null);
   const on = new Set(p.accounts);
+  const byPlan = new Set(p.by_plan ?? []);
   const toggle = (id: string, v: boolean) => {
     const next = accounts.map((a) => a.id).filter((x) => (x === id ? v : on.has(x)));
     setErr(null);
@@ -112,10 +113,13 @@ function PluginAccounts({ p, accounts, onSaved }: { p: PluginView; accounts: Acc
       <div className="navlabel" style={{ padding: '0 0 8px' }}>On for{p.admin_only ? ' (your own accounts only)' : ''}</div>
       <ErrorBox error={err} />
       <div className="row" style={{ gap: 18, flexWrap: 'wrap' }}>
-        {shown.map((a) => <Toggle key={a.id} on={on.has(a.id)} onChange={(v) => toggle(a.id, v)} label={a.name} />)}
+        {shown.map((a) => byPlan.has(a.id) && !on.has(a.id)
+          ? <span key={a.id} title="Their plan includes it, so it is on without being picked here"><Toggle on disabled onChange={() => undefined} label={a.name + ' (plan)'} /></span>
+          : <Toggle key={a.id} on={on.has(a.id)} onChange={(v) => toggle(a.id, v)} label={a.name} />)}
         {shown.length === 0 && <span className="dim">No accounts can use it.</span>}
       </div>
-      {p.accounts.length === 0 && <small className="help">It is on for nobody yet, so it does nothing.</small>}
+      {p.accounts.length === 0 && byPlan.size === 0 && <small className="help">{p.id === 'dns' || p.id === 'mailcow' ? 'Nobody has it yet: it turns on for accounts whose plan includes it, or ones you pick here.' : 'It is on for nobody yet, so it does nothing.'}</small>}
+      {byPlan.size > 0 && <small className="help">Accounts marked (plan) get it from their plan. Pick others here to give it to them too.</small>}
     </div>
   );
 }
