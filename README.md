@@ -325,7 +325,8 @@ it deletes its mail domains, mailboxes, mail and SES identities.
 ### DNS hosting
 
 Hosts customers' domains on your own [PowerDNS](https://www.powerdns.com)
-nameservers. Switch it on for the accounts that may use it; they get a **DNS**
+nameservers. Accounts whose plan has DNS domains get it automatically, and you
+can switch it on for other accounts on the Plugins page. They get a **DNS**
 page to add their domains and edit records (A, AAAA, CNAME, MX, TXT, SRV, CAA,
 and NS for subdomains). The SOA and the zone's own NS records are Berth's. A
 customer can only add a domain nobody else hosts here, and never a public
@@ -337,6 +338,12 @@ already has a record. Domains a site drops lose the records Berth would have
 made. Each site's Overview has a DNS card that checks where its domains point
 and says what to change: the nameservers at the registrar, or A/AAAA records
 for customers who keep their DNS elsewhere.
+
+When a customer makes a site on a domain that isn't hosted here yet, Berth adds
+the domain as a zone (within their plan) with the site's records already in it,
+and the new-site page tells them which nameservers to set at their registrar.
+Switch this off with **Add a zone for new sites**. The admin's own sites and
+sites published on Halyard are left alone.
 
 #### Setting up the nameservers
 

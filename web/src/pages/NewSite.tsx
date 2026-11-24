@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMe } from '../me';
-import { AccountView, PluginView, bytes, del, exposureLabel, get, HalyardInfo, Job, nameFromDomain, post, Serve, serveFields, Settings, Site, SiteType, upload, UploadInfo, vipLabel } from '../api';
+import { AccountView, PluginView, bytes, del, exposureLabel, get, HalyardInfo, Job, nameFromDomain, post, Serve, serveFields, serveOf, Settings, Site, SiteType, upload, UploadInfo, vipLabel } from '../api';
+import { SiteDNSCard } from './DNS';
 import { Chips, Copyable, ErrorBox, Field, Icon, JobView, Loading, Toggle, useLoad } from '../ui';
 
 const types: { v: SiteType; icon: string; title: string; text: string }[] = [
@@ -39,6 +40,8 @@ export default function NewSite() {
   const plugins = useLoad(() => (isAdmin ? get<PluginView[]>('/plugins') : Promise.resolve([] as PluginView[])));
   const halPlugin = plugins.data?.find((p) => p.id === 'halyard');
   const halyardOn = !!halPlugin?.enabled && halPlugin.accounts.includes(account);
+  // The DNS plugin is on for the signed-in customer (admins see the site page).
+  const dnsOn = !isAdmin && !!me?.plugins.some((p) => p.id === 'dns');
   const [publish, setPublish] = useState(true);
   const [vip, setVip] = useState('');
   const [exposure, setExposure] = useState('');
@@ -113,9 +116,13 @@ export default function NewSite() {
               <Field label="Log in at"><Copyable value={(s.https ? 'https://' : 'http://') + s.domain + '/wp-admin/'} /></Field>
             </div></div>}
             {job && <div className="card"><div className="cb">
-              {job.status === 'ok' ? <p style={{ marginBottom: 12 }}>The site is ready. {res?.site.halyard?.enabled ? <>It is published on Halyard; the site page shows the host's status.</> : <>Point <b>{s.domain}</b> at Halyard if you have not already.</>}</p> : <p style={{ marginBottom: 12 }}>Something went wrong. The log shows where; you can retry from the site page.</p>}
+              {job.status === 'ok' ? <p style={{ marginBottom: 12 }}>The site is ready. {res?.site.halyard?.enabled ? <>It is published on Halyard; the site page shows the host's status.</>
+                : isAdmin && serveOf(s) === 'proxy' ? <>Point <b>{s.domain}</b> at Halyard if you have not already.</>
+                : dnsOn ? <>Next, point <b>{s.domain}</b> here; the DNS card below says how.</>
+                : <>Next, point <b>{s.domain}</b> at this server{me?.brand?.ipv4 ? <> with an A record to <b className="mono">{me.brand.ipv4}</b></> : ''}{me?.brand?.ipv6 ? <> and an AAAA record to <b className="mono">{me.brand.ipv6}</b></> : ''}. HTTPS sets itself up once it does.</>}</p> : <p style={{ marginBottom: 12 }}>Something went wrong. The log shows where; you can retry from the site page.</p>}
               <button className="btn p" onClick={() => nav('/sites/' + s.id)}>Open site</button>
             </div></div>}
+            {job?.status === 'ok' && dnsOn && !res?.site.halyard?.enabled && <SiteDNSCard site={s.id} />}
           </div>
         </div>
       </>
