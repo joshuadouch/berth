@@ -67,6 +67,9 @@ func (e *Engine) applyPlan(ctx context.Context, s *model.Site, isNew bool) error
 	if !isNew {
 		return nil
 	}
+	if p.NoSites {
+		return fmt.Errorf("plan %s does not include websites", p.Name)
+	}
 	if _, n := e.AccountUsage(ctx, s.AccountID); p.MaxSites > 0 && n >= p.MaxSites {
 		return fmt.Errorf("plan %s allows %d site%s, and the account has %d", p.Name, p.MaxSites, plural(p.MaxSites), n)
 	}

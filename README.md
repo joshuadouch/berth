@@ -282,11 +282,12 @@ Manages a [mailcow](https://mailcow.email) server: mail domains, mailboxes
 1. creates it in mailcow and generates a 2048-bit DKIM key;
 2. adds it to **Amazon SES** as a domain identity with Easy DKIM and a custom
    MAIL FROM (`bounce.<domain>`), so SPF and DKIM align for DMARC;
-3. creates the DNS records in **Cloudflare** if you give it a token: MX, SPF,
-   mailcow DKIM, the three SES DKIM CNAMEs, MAIL FROM MX and SPF, DMARC
-   (only when there is none) and autodiscover/autoconfig. Records that already
-   exist with other values are never changed; they show as clashes. Without a
-   token the page lists the records to add yourself;
+3. creates the DNS records: MX, SPF, mailcow DKIM, the three SES DKIM CNAMEs,
+   MAIL FROM MX and SPF, and DMARC (only when there is none). They go into the
+   domain's zone on Berth's own nameservers when its account hosts it on the
+   DNS page, otherwise into **Cloudflare** when the token can see the zone.
+   Records that already exist with other values are never changed; they show
+   as clashes. Otherwise the page lists the records to add;
 4. once SES has verified the domain (Berth checks every five minutes), turns on
    mailcow's **sender-dependent transport** to `email-smtp.<region>.amazonaws.com:587`
    for that domain. Until then mail goes out directly from mailcow, so nothing
@@ -304,6 +305,22 @@ Setup:
   credentials). A new SES account is in the sandbox until AWS grants production
   access; the Test button tells you.
 - Cloudflare (optional): a token with **Zone → DNS → Edit** on the mail domains.
+
+**Customers.** Every mail domain belongs to an account; domains that were in
+mailcow before belong to the admin's account. A customer gets the **Mail** page
+when their plan has mail domains (Plans → Mail) or when you move a domain to
+their account. They see only their own domains and can add mailboxes, aliases
+and catch-alls, change passwords and quotas, and delete what they made, within
+the plan's mail domains, mailboxes, aliases and storage. SES, pausing a domain
+and its limits stay with admins. To add a domain themselves a customer must
+prove it is theirs: either it is one of their zones on the DNS page, or it has
+the `_berth-verify.<domain>` TXT record the page gives them. The **Webmail**
+button goes to the plugin's webmail address (or SOGo on the mail host).
+
+Billing systems add a domain with
+`POST /api/provision/accounts/{id}/plugins/mailcow` and `{"domain": "…"}`
+(safe to repeat). Suspending an account pauses its mail domains; terminating
+it deletes its mail domains, mailboxes, mail and SES identities.
 
 ### DNS hosting
 
@@ -389,15 +406,16 @@ system's own ID for the service, given when the account is created.
 | Call | What it does |
 | --- | --- |
 | `GET /api/provision/plans` | The plans, with their IDs and limits. |
-| `PUT /api/provision/plans/{id or name}` | Creates the plan if there is none with that ID or name, otherwise updates it. Send every limit (`max_sites`, `disk_mb`, `dns_zones`, `max_domains`, `memory_mb`, `workers`, `upload_mb`, `db_connections`, `cpu_percent`, `ram_mb`, `max_processes`, `allow_shell`, `no_sftp`); a missing one means no limit. Accounts on the plan are updated straight away. 201 when created. |
+| `PUT /api/provision/plans/{id or name}` | Creates the plan if there is none with that ID or name, otherwise updates it. Send every limit (`max_sites`, `disk_mb`, `dns_zones`, `max_domains`, `memory_mb`, `workers`, `upload_mb`, `db_connections`, `cpu_percent`, `ram_mb`, `max_processes`, `allow_shell`, `no_sftp`, `no_sites` (mail-only plans), `mail_domains`, `mailboxes`, `mail_aliases`, `mail_storage_mb`); a missing one means no limit. Accounts on the plan are updated straight away. 201 when created. |
 | `POST /api/provision/accounts` | Create an account and its customer login. Body: `email` (needed), `name`, `plan` (plan ID or name), `external_id`, `username`, `password`, `notes`. A blank username comes from the email, a blank password is generated (20 letters and digits) and returned once. Answers `201` with `account`, `username`, `password` and `login_url`; `409` with `account_id` if the external ID is already taken. |
 | `GET /api/provision/accounts?external_id=…` | Find an account (an empty list if none). |
 | `GET /api/provision/accounts/{id}` | The account with its logins, sites and plan usage. |
 | `PATCH /api/provision/accounts/{id}` | Change `plan` (ID or name, `""` for none), `name`, `email`, `notes` or `external_id`. Fields left out stay. A new plan applies at once. |
-| `POST /api/provision/accounts/{id}/suspend` | Sign the customer out and keep them out. Optional body `{"reason": "…"}` for the activity log. Their sites keep running. |
+| `POST /api/provision/accounts/{id}/suspend` | Sign the customer out and keep them out. Optional body `{"reason": "…"}` for the activity log. Their sites keep running; their mail domains are paused. |
 | `POST /api/provision/accounts/{id}/unsuspend` | Let them back in. |
 | `POST /api/provision/accounts/{id}/password` | Set the customer's password (`{"password": "…"}`) or, with no body, generate and return one. Signs them out. |
 | `POST /api/provision/accounts/{id}/login-link` | A one-time sign-in link (`url`) valid for 5 minutes, for a "Log in to control panel" button. |
+| `POST /api/provision/accounts/{id}/plugins/{plugin}` | Set a plugin up for the account. `mailcow` takes `{"domain": "example.com"}` and adds the mail domain with the plan's mail limits, its SES identity and DNS records (`setup` lists what happened); repeating it re-checks the domain. `409` if another account has the domain or the plugin is off. |
 | `DELETE /api/provision/accounts/{id}` | Terminate. An account with sites is refused (`409`) unless you add `?delete_sites=1`: then it is suspended, each site is deleted after a final backup (`202` with the job IDs), and the account goes once they are gone. |
 
 ```bash

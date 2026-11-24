@@ -44,6 +44,7 @@ export interface APIToken { id: string; name: string; scope: 'provisioning' | 'f
 export interface Plan {
   id: string; name: string; max_sites: number; disk_mb: number; dns_zones: number; max_domains: number; memory_mb: number; workers: number;
   upload_mb: number; db_connections: number; cpu_percent: number; ram_mb: number; max_processes: number; allow_shell: boolean; no_sftp: boolean;
+  mail_domains: number; mailboxes: number; mail_aliases: number; mail_storage_mb: number; no_sites: boolean;
 }
 export interface PlanUsage { plan: Plan | null; disk_used: number; sites: number }
 export interface AccountView extends Account { users: User[]; sites: string[]; usage: PlanUsage }

@@ -4,7 +4,7 @@ import { Badge, ErrorBox, Field, Icon, Loading, Modal, Toggle, useLoad, useToast
 
 type PlanView = Plan & { accounts: number };
 
-const blank: Plan = { id: '', name: '', max_sites: 5, disk_mb: 10240, dns_zones: 5, max_domains: 5, memory_mb: 256, workers: 5, upload_mb: 64, db_connections: 20, cpu_percent: 0, ram_mb: 0, max_processes: 0, allow_shell: false, no_sftp: false };
+const blank: Plan = { id: '', name: '', max_sites: 5, disk_mb: 10240, dns_zones: 5, max_domains: 5, memory_mb: 256, workers: 5, upload_mb: 64, db_connections: 20, cpu_percent: 0, ram_mb: 0, max_processes: 0, allow_shell: false, no_sftp: false, mail_domains: 0, mailboxes: 0, mail_aliases: 0, mail_storage_mb: 0, no_sites: false };
 
 export const limit = (n: number, unit = '') => (n ? n + unit : 'Unlimited');
 export const mbLabel = (n: number) => (!n ? 'Unlimited' : n >= 1024 && n % 1024 === 0 ? n / 1024 + ' GB' : n + ' MB');
@@ -88,8 +88,16 @@ function PlanModal({ plan, onClose }: { plan: Plan; onClose: (saved: boolean) =>
         {num('upload_mb', 'Upload size (MB)')}
         {num('db_connections', 'Database connections')}
       </div>
+      <div className="navlabel" style={{ padding: '6px 0 10px' }}>Mail, with the Mailcow plugin (mail domains 0 = no mail)</div>
+      <div className="grid3">
+        {num('mail_domains', 'Mail domains', 'Domains the account can add on the Mail page.')}
+        {num('mailboxes', 'Mailboxes', 'Across all its mail domains. 0 = unlimited.')}
+        {num('mail_aliases', 'Aliases', 'Across all its mail domains. 0 = unlimited.')}
+        {num('mail_storage_mb', 'Mail storage (MB)', 'All mailboxes together. 0 = the plugin\'s default per domain.')}
+      </div>
       <Toggle on={f.allow_shell} onChange={(v) => set({ allow_shell: v })} label="Allow PHP shell functions" help="exec(), system(), proc_open() and the like. Off is safer on shared hosting; a few plugins need them." />
       <Toggle on={!f.no_sftp} onChange={(v) => set({ no_sftp: !v })} label="SFTP access" />
+      <Toggle on={f.no_sites} onChange={(v) => set({ no_sites: v })} label="Mail only" help="The account cannot create websites; for email-only plans." />
       <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
         <button className="btn" onClick={() => onClose(false)}>Cancel</button>
         <button className="btn p" disabled={busy} onClick={save}>{f.id ? 'Save plan' : 'Create plan'}</button>

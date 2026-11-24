@@ -96,6 +96,32 @@ type SiteWatcher interface {
 	SiteChanged(ctx context.Context, old, cur *model.Site, logf func(string, ...any))
 }
 
+// Gate is implemented by plugins that are on for some accounts by rule (for
+// example because their hosting plan includes the feature) as well as for the
+// accounts chosen on the Plugins page.
+type Gate interface {
+	AllowAccount(ctx context.Context, account string) bool
+}
+
+// Account events passed to AccountWatchers.
+const (
+	AccountSuspended   = "suspended"
+	AccountUnsuspended = "unsuspended"
+	AccountDeleted     = "deleted"
+)
+
+// AccountWatcher is implemented by plugins that keep things per account and
+// follow suspensions and deletions. It is called while the plugin is enabled.
+type AccountWatcher interface {
+	AccountChanged(ctx context.Context, a model.Account, event string)
+}
+
+// Provisioner is implemented by plugins that a billing system can set up for
+// an account through POST /api/provision/accounts/{id}/plugins/{plugin}.
+type Provisioner interface {
+	Provision(ctx context.Context, a model.Account, body json.RawMessage) (any, error)
+}
+
 // Config holds a plugin's settings.
 type Config map[string]any
 
@@ -212,6 +238,26 @@ func (h *Host) GetData(ctx context.Context, key string, v any) error {
 // SetData saves plugin data.
 func (h *Host) SetData(ctx context.Context, key string, v any) error {
 	return h.Store.SetKV(ctx, "plugin:"+h.ID+":data:"+key, v)
+}
+
+// Plugin returns another plugin while it is enabled, for plugins that work
+// together (the mailcow plugin writes records into the DNS plugin's zones).
+func (h *Host) Plugin(ctx context.Context, id string) (Plugin, bool) {
+	p, err := h.reg.find(id)
+	if err != nil || !h.reg.Enabled(ctx, id) {
+		return nil, false
+	}
+	return p, true
+}
+
+// AdminAccount returns the account of the server's first admin, which owns
+// things that were there before accounts did.
+func (h *Host) AdminAccount(ctx context.Context) string {
+	u, err := h.Store.FirstUser(ctx)
+	if err != nil {
+		return ""
+	}
+	return u.AccountID
 }
 
 // Sites lists Berth's sites (for plugins that offer to set things up for them).
@@ -468,8 +514,12 @@ func (r *Registry) ActiveFor(ctx context.Context, id, account string) bool {
 	if err != nil || !st.Enabled {
 		return false
 	}
-	if !p.Info().PerAccount {
+	if g, ok := p.(Gate); ok && g.AllowAccount(ctx, account) {
 		return true
+	}
+	if !p.Info().PerAccount {
+		_, gated := p.(Gate)
+		return !gated
 	}
 	for _, a := range st.Accounts {
 		if a == account {
@@ -477,6 +527,44 @@ func (r *Registry) ActiveFor(ctx context.Context, id, account string) bool {
 		}
 	}
 	return false
+}
+
+// AccountChanged passes an account event to every enabled plugin that
+// watches accounts.
+func (r *Registry) AccountChanged(ctx context.Context, a model.Account, event string) {
+	for _, p := range r.plugins {
+		w, ok := p.(AccountWatcher)
+		if ok && r.Enabled(ctx, p.Info().ID) {
+			w.AccountChanged(ctx, a, event)
+		}
+	}
+}
+
+// Error is an error with an HTTP status, for Provision to return.
+type Error struct {
+	Code int
+	Msg  string
+}
+
+func (e *Error) Error() string { return e.Msg }
+
+// ErrNotProvisioner is returned for a plugin a billing system cannot set up.
+var ErrNotProvisioner = errors.New("this plugin cannot be set up through the provisioning API")
+
+// Provision sets a plugin up for an account on behalf of a billing system.
+func (r *Registry) Provision(ctx context.Context, id string, a model.Account, body json.RawMessage) (any, error) {
+	p, err := r.find(id)
+	if err != nil {
+		return nil, err
+	}
+	pv, ok := p.(Provisioner)
+	if !ok {
+		return nil, ErrNotProvisioner
+	}
+	if !r.Enabled(ctx, id) {
+		return nil, &Error{Code: 409, Msg: "the " + id + " plugin is turned off"}
+	}
+	return pv.Provision(ctx, a, body)
 }
 
 // SiteChanged passes a site change to every enabled plugin that watches sites.

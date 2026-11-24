@@ -9,6 +9,7 @@ import (
 
 	"github.com/joshuadouch/berth/internal/auth"
 	"github.com/joshuadouch/berth/internal/model"
+	"github.com/joshuadouch/berth/internal/plugin"
 	"github.com/joshuadouch/berth/internal/store"
 )
 
@@ -281,6 +282,9 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 	case !next.Suspended && cur.Suspended:
 		msg = " unsuspended account "
 	}
+	if next.Suspended != cur.Suspended {
+		s.accountEvent(next, next.Suspended)
+	}
 	s.Store.AddEvent(r.Context(), "info", "account", "", currentUser(r).Username+msg+next.Name)
 	if next.PlanID != cur.PlanID {
 		if err := s.Engine.ApplyPlanLimits(r.Context(), next.ID); err != nil {
@@ -320,6 +324,7 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Store.AddEvent(r.Context(), "info", "account", "", currentUser(r).Username+" deleted account "+a.Name)
+	s.Plugins.AccountChanged(r.Context(), a, plugin.AccountDeleted)
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 

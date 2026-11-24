@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/joshuadouch/berth/internal/auth"
 	"github.com/joshuadouch/berth/internal/model"
+	"github.com/joshuadouch/berth/internal/plugin"
 	"github.com/joshuadouch/berth/internal/store"
 )
 
@@ -389,6 +391,7 @@ func (s *Server) provSuspend(suspend bool) http.HandlerFunc {
 				msg += a.Name
 			}
 			s.Store.AddEvent(ctx, "info", "account", "", actor(r)+msg)
+			s.accountEvent(a, suspend)
 		}
 		writeJSON(w, 200, a)
 	}
@@ -558,6 +561,7 @@ func (s *Server) provTerminate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.Store.AddEvent(ctx, "info", "account", "", who+" deleted account "+a.Name)
+		s.Plugins.AccountChanged(ctx, a, plugin.AccountDeleted)
 		writeJSON(w, 200, map[string]any{"status": "deleted"})
 		return
 	}
@@ -623,6 +627,7 @@ func (s *Server) finishTermination(a model.Account, who string, jobs []int64) {
 		if left == 0 {
 			if err := s.Store.DeleteAccount(ctx, a.ID); err == nil {
 				s.Store.AddEvent(ctx, "info", "account", "", who+" deleted account "+a.Name)
+				s.Plugins.AccountChanged(ctx, a, plugin.AccountDeleted)
 			}
 			return
 		}
@@ -632,4 +637,48 @@ func (s *Server) finishTermination(a model.Account, who string, jobs []int64) {
 		time.Sleep(time.Second)
 	}
 	s.Store.AddEvent(ctx, "error", "account", "", "Terminating "+a.Name+" stopped: a site could not be deleted (see Jobs). The account stays suspended.")
+}
+
+// accountEvent tells plugins an account was suspended or unsuspended. It
+// runs in the background: plugins may call slow outside services.
+func (s *Server) accountEvent(a model.Account, suspended bool) {
+	ev := plugin.AccountUnsuspended
+	if suspended {
+		ev = plugin.AccountSuspended
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		s.Plugins.AccountChanged(ctx, a, ev)
+	}()
+}
+
+// provPlugin sets a plugin up for an account, e.g. a mail domain:
+// POST /api/provision/accounts/{id}/plugins/mailcow {"domain": "example.com"}.
+func (s *Server) provPlugin(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.provAccount(w, r)
+	if !ok {
+		return
+	}
+	var body json.RawMessage
+	if err := readOptionalJSON(r, &body); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	id := r.PathValue("plugin")
+	out, err := s.Plugins.Provision(r.Context(), id, a, body)
+	switch {
+	case errors.Is(err, plugin.ErrNotProvisioner):
+		writeErr(w, 400, err.Error())
+	case err != nil:
+		var pe *plugin.Error
+		if errors.As(err, &pe) {
+			writeErr(w, pe.Code, pe.Msg)
+			return
+		}
+		writeErr(w, 502, err.Error())
+	default:
+		s.Store.AddEvent(r.Context(), "info", "account", "", actor(r)+" set up "+id+" for "+a.Name)
+		writeJSON(w, 200, out)
+	}
 }
