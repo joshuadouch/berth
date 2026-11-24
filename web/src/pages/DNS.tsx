@@ -234,9 +234,10 @@ export function SiteDNSCard({ site }: { site: string }) {
   const allOk = data.hosts.every((h) => h.points);
   return (
     <div className="card"><div className="ch"><h3>DNS</h3>{allOk ? <Badge kind="g">Points here</Badge> : <Badge kind="a">Not pointed yet</Badge>}</div><div className="cb">
+      <div className="dim" style={{ fontSize: 12.5, marginBottom: 8 }}>Where each domain points on the internet right now:</div>
       <div className="kv">{data.hosts.map((h) => <Fragment key={h.name}>
         <div className="mono" style={{ fontSize: 12.5 }}>{h.name}</div>
-        <div>{h.points ? <span style={{ color: 'var(--good-ink)' }}>✓ this server</span> : h.found.length ? <span className="muted mono" style={{ fontSize: 12.5 }}>{h.found.join(', ')}</span> : <span className="dim">no address</span>}</div>
+        <div>{h.points ? <span style={{ color: 'var(--good-ink)' }}>✓ this server</span> : h.found.length ? <span className="muted mono" style={{ fontSize: 12.5 }}>{h.found.join(', ')}</span> : <span className="dim">not found in DNS yet</span>}</div>
       </Fragment>)}</div>
       {!allOk && <div className="muted" style={{ marginTop: 12, fontSize: 13 }}>
         {data.zone ? <>
