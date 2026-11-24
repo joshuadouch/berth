@@ -334,8 +334,11 @@ func normalizeDefault(v any) any {
 // View is a plugin as the API shows it: secrets are left out.
 type View struct {
 	Info
-	Enabled    bool            `json:"enabled"`
-	Accounts   []string        `json:"accounts"`
+	Enabled  bool     `json:"enabled"`
+	Accounts []string `json:"accounts"`
+	// ByPlan lists the accounts that get the plugin through their plan (or
+	// what they own), without being picked in Accounts.
+	ByPlan     []string        `json:"by_plan"`
 	Config     Config          `json:"config"`
 	SecretsSet map[string]bool `json:"secrets_set"`
 	CanTest    bool            `json:"can_test"`
@@ -368,6 +371,15 @@ func (r *Registry) View(ctx context.Context, id string) (View, error) {
 	v := View{Info: p.Info(), Enabled: st.Enabled, Accounts: st.Accounts, Config: Config{}, SecretsSet: map[string]bool{}, CanTest: canTest}
 	if v.Accounts == nil {
 		v.Accounts = []string{}
+	}
+	v.ByPlan = []string{}
+	if g, ok := p.(Gate); ok && r.st != nil {
+		accounts, _ := r.st.Accounts(ctx)
+		for _, a := range accounts {
+			if g.AllowAccount(ctx, a.ID) {
+				v.ByPlan = append(v.ByPlan, a.ID)
+			}
+		}
 	}
 	if v.Fields == nil {
 		v.Fields = []Field{}
