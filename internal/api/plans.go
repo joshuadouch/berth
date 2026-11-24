@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/joshuadouch/berth/internal/model"
 	"github.com/joshuadouch/berth/internal/store"
@@ -65,9 +66,23 @@ func (s *Server) savePlan(w http.ResponseWriter, r *http.Request) {
 	} else {
 		p.ID = store.NewID()
 	}
+	s.commitPlan(w, r, p, 200)
+}
+
+// commitPlan validates and stores a plan, then brings its accounts in line.
+func (s *Server) commitPlan(w http.ResponseWriter, r *http.Request, p model.Plan, status int) {
+	ctx := r.Context()
 	if err := p.Normalize(); err != nil {
 		writeErr(w, 400, err.Error())
 		return
+	}
+	if plans, err := s.Store.Plans(ctx); err == nil {
+		for _, o := range plans {
+			if o.ID != p.ID && strings.EqualFold(o.Name, p.Name) {
+				writeErr(w, 409, "another plan is already called "+o.Name)
+				return
+			}
+		}
 	}
 	if err := s.Store.SavePlan(ctx, p); err != nil {
 		writeErr(w, 500, err.Error())
@@ -85,7 +100,7 @@ func (s *Server) savePlan(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
-	writeJSON(w, 200, p)
+	writeJSON(w, status, p)
 }
 
 func (s *Server) deletePlan(w http.ResponseWriter, r *http.Request) {
