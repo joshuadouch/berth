@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -681,4 +682,61 @@ func (s *Server) provPlugin(w http.ResponseWriter, r *http.Request) {
 		s.Store.AddEvent(r.Context(), "info", "account", "", actor(r)+" set up "+id+" for "+a.Name)
 		writeJSON(w, 200, out)
 	}
+}
+
+// provAddAddon puts an add-on plan on an account, e.g. business email bought
+// alongside hosting: POST /api/provision/accounts/{id}/addons {"plan": "..."}.
+// Its mail and DNS limits add to the account's plan. Adding one twice is fine.
+func (s *Server) provAddAddon(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	a, ok := s.provAccount(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Plan string `json:"plan"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	p, err := s.findPlan(ctx, req.Plan)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	if !slices.Contains(a.AddonPlans, p.ID) {
+		a.AddonPlans = append(a.AddonPlans, p.ID)
+		if err := s.Store.SaveAccount(ctx, a); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		s.Store.AddEvent(ctx, "info", "account", "", actor(r)+" added "+p.Name+" to account "+a.Name)
+	}
+	v, _ := s.accountView(ctx, a, s.sitesOrNil(ctx))
+	writeJSON(w, 200, v)
+}
+
+// provRemoveAddon takes an add-on plan off an account. It leaves what the
+// add-on was for (mail domains...) alone: remove those through the plugin.
+func (s *Server) provRemoveAddon(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	a, ok := s.provAccount(w, r)
+	if !ok {
+		return
+	}
+	ref := r.PathValue("plan")
+	if p, err := s.findPlan(ctx, ref); err == nil {
+		ref = p.ID
+	}
+	if i := slices.Index(a.AddonPlans, ref); i >= 0 {
+		a.AddonPlans = slices.Delete(a.AddonPlans, i, i+1)
+		if err := s.Store.SaveAccount(ctx, a); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		s.Store.AddEvent(ctx, "info", "account", "", actor(r)+" removed add-on "+ref+" from account "+a.Name)
+	}
+	v, _ := s.accountView(ctx, a, s.sitesOrNil(ctx))
+	writeJSON(w, 200, v)
 }

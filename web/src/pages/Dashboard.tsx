@@ -50,6 +50,26 @@ export default function Dashboard({ me }: { me: string }) {
   const vulnSites = Object.keys(data.vulns);
   const res = data.resources;
   const cust = !!data.customer;
+  // Mail-only accounts have no websites: show them their email instead.
+  const mailOnly = cust && !!data.plan?.plan?.no_sites;
+  if (mailOnly) return (
+    <>
+      <div className="hero">
+        <div className="head">
+          <div><h1>{greeting()}, {me}</h1><div className="sub">Your business email</div></div>
+          <Link to="/p/mailcow" className="btn white"><Icon name="mail" />Mail</Link>
+        </div>
+      </div>
+      <MailStart />
+      <div className="card">
+        <div className="ch"><h3>Activity</h3></div>
+        {data.events.length === 0 ? <div className="empty">No activity yet.</div> :
+          <table><tbody>{data.events.map((e) => (
+            <tr key={e.id}><td>{e.level === 'error' ? <span className="dot b" /> : e.level === 'warn' ? <span className="dot w" /> : <span className="dot g" />}</td><td style={{ whiteSpace: 'normal' }}>{e.message}</td><td className="muted" style={{ textAlign: 'right' }}>{ago(e.time)}</td></tr>
+          ))}</tbody></table>}
+      </div>
+    </>
+  );
   return (
     <>
       <div className="hero">
@@ -114,6 +134,23 @@ export default function Dashboard({ me }: { me: string }) {
         </div>}
       </div>
     </>
+  );
+}
+
+// MailStart walks a mail-only customer through setting up their email.
+function MailStart() {
+  const { me } = useMe();
+  const b = me?.brand;
+  const dns = me?.plugins.some((p) => p.id === 'dns');
+  return (
+    <div className="card" style={{ marginBottom: 16 }}><div className="ch"><h3>Getting started</h3></div><div className="cb">
+      <ol className="steps" style={{ margin: 0, paddingLeft: 20, lineHeight: 1.7 }}>
+        <li>Open <Link to="/p/mailcow">Mail</Link> and check your domain is listed. It shows the DNS records your domain needs.</li>
+        {dns && <li>Easiest: add the domain under <Link to="/p/dns">DNS</Link> and set its nameservers at your registrar; the mail records are made for you.</li>}
+        <li>Add mailboxes for your team, then read mail in webmail or any mail app.</li>
+      </ol>
+      {(b?.support_email || b?.support_url) && <small className="help">Stuck? {b.support_email && <a href={'mailto:' + b.support_email}>{b.support_email}</a>}{b.support_email && b.support_url && ' · '}{b.support_url && <a href={b.support_url} target="_blank" rel="noreferrer">Support</a>}</small>}
+    </div></div>
   );
 }
 

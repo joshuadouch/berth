@@ -22,11 +22,12 @@ export type { Me };
 
 // Enabled plugins with a page add sidebar entries after Sites.
 // Customers see their hosting and their account; admins also run the platform.
-const buildNav = (plugins: PluginView[], admin: boolean) => [
+// Mail-only accounts have no sites, so no Sites or Backups either.
+const buildNav = (plugins: PluginView[], admin: boolean, mailOnly: boolean) => [
   ['Overview'], ['/', 'dash', 'Dashboard'],
-  ['Hosting'], ['/sites', 'site', 'Sites'],
+  [mailOnly ? 'Services' : 'Hosting'], ...(mailOnly ? [] : [['/sites', 'site', 'Sites']]),
   ...plugins.filter((p) => p.enabled && p.nav_label && pluginPages[p.id]).map((p) => ['/p/' + p.id, p.icon || 'plug', p.nav_label]),
-  ['/backups', 'backup', 'Backups'], ['/activity', 'pulse', 'Activity'],
+  ...(mailOnly ? [] : [['/backups', 'backup', 'Backups']]), ['/activity', 'pulse', 'Activity'],
   ...(admin
     ? [['Platform'], ['/accounts', 'users', 'Accounts'], ['/plans', 'layers', 'Plans'], ['/system', 'server', 'System'], ['/plugins', 'plug', 'Plugins'], ['/settings', 'set', 'Settings']]
     : [['Account'], ['/account', 'set', 'My account']]),
@@ -128,7 +129,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     window.addEventListener('berth-plugins', load);
     return () => window.removeEventListener('berth-plugins', load);
   }, []);
-  const nav = buildNav(plugins, admin);
+  const mailOnly = !admin && !!me.usage?.plan?.no_sites;
+  const nav = buildNav(plugins, admin, mailOnly);
   const title = section === 'p' ? plugins.find((p) => p.id === loc.pathname.split('/')[2])?.nav_label ?? '' : titles[section] ?? '';
   const siteID = section === 'sites' ? loc.pathname.split('/')[2] : '';
   const inSite = !!siteID && siteID !== 'new';
@@ -167,8 +169,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         <div className="top">
           <button className="menubtn" onClick={() => setMenu(true)} aria-label="Open menu"><Icon name="menu" size={20} /></button>
           <div className="crumb">{inSite ? <><Link to="/sites">Sites</Link><span className="sep">/</span><b>{siteID}</b></> : siteID === 'new' ? <><Link to="/sites">Sites</Link><span className="sep">/</span><b>New site</b></> : <b>{title}</b>}</div>
-          <SiteSearch />
-          <Link to="/sites/new" className="btn p s hide-sm"><Icon name="plus" size={14} />New site</Link>
+          {!mailOnly && <SiteSearch />}
+          {!mailOnly && <Link to="/sites/new" className="btn p s hide-sm"><Icon name="plus" size={14} />New site</Link>}
           <div className="avatar" title={me.user.username}>{me.user.username.slice(0, 2).toUpperCase()}</div>
         </div>
         {me.impersonator && <div className="warnbox" style={{ margin: '20px 32px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -179,10 +181,12 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           <PageBoundary resetKey={loc.pathname + loc.search}>
           <Routes>
             <Route path="/" element={<Dashboard me={me.user.username} />} />
-            <Route path="/sites" element={<Sites />} />
-            <Route path="/sites/new" element={<NewSite />} />
-            <Route path="/sites/:id" element={<SitePage />} />
-            <Route path="/backups" element={<Backups />} />
+            {!mailOnly && <>
+              <Route path="/sites" element={<Sites />} />
+              <Route path="/sites/new" element={<NewSite />} />
+              <Route path="/sites/:id" element={<SitePage />} />
+              <Route path="/backups" element={<Backups />} />
+            </>}
             <Route path="/activity" element={<Activity />} />
             <Route path="/account" element={<MyAccount me={me} />} />
             {admin && <>

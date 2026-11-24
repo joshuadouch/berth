@@ -23,6 +23,10 @@ import (
 type Owner struct {
 	Account string    `json:"account"`
 	Created time.Time `json:"created"`
+	// Paused is set when the billing system suspended this domain on its
+	// own (its mail service, not the whole account): unsuspending the
+	// account leaves it paused.
+	Paused bool `json:"paused,omitempty"`
 }
 
 // owners loads the domain owners. Domains missing from it (ones made in
@@ -289,6 +293,56 @@ func (p *Plugin) dnsForDomain(ctx context.Context, c plugin.Config, owner, domai
 // provisionReq is what a billing system sends to set mail up for an account.
 type provisionReq struct {
 	Domain string `json:"domain"`
+	// Action is "" (add or finish setting up), "suspend", "unsuspend" or
+	// "remove", for one domain when only the mail service changes.
+	Action string `json:"action"`
+}
+
+// setPaused records whether a domain was paused on its own.
+func (p *Plugin) setPaused(ctx context.Context, domain string, paused bool) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	o := p.owners(ctx)
+	cur, ok := o[domain]
+	if !ok {
+		return nil
+	}
+	cur.Paused = paused
+	o[domain] = cur
+	return p.host.SetData(ctx, "owners", o)
+}
+
+// domainAction suspends, unsuspends or removes one of an account's domains.
+func (p *Plugin) domainAction(ctx context.Context, c plugin.Config, mc *Client, a model.Account, d, action string) (any, error) {
+	if o, ok := p.owners(ctx)[d]; !ok || o.Account != a.ID {
+		if action == "remove" {
+			return map[string]any{"domain": d, "removed": false}, nil
+		}
+		return nil, &plugin.Error{Code: 404, Msg: d + " is not a mail domain of this account"}
+	}
+	switch action {
+	case "suspend", "unsuspend":
+		pause := action == "suspend"
+		active := "1"
+		if pause || a.Suspended {
+			active = "0"
+		}
+		if err := mc.EditDomain(ctx, d, map[string]any{"active": active}); err != nil {
+			return nil, err
+		}
+		if err := p.setPaused(ctx, d, pause); err != nil {
+			return nil, err
+		}
+		p.host.Event(ctx, "info", fmt.Sprintf("Mail domain %s %sed for %s", d, action, a.Name))
+		return map[string]any{"domain": d, "active": active == "1"}, nil
+	case "remove":
+		if err := p.removeDomain(ctx, c, mc, d); err != nil {
+			return nil, err
+		}
+		p.host.Event(ctx, "warn", "Deleted mail domain "+d+", its mailboxes and mail, for "+a.Name)
+		return map[string]any{"domain": d, "removed": true}, nil
+	}
+	return nil, &plugin.Error{Code: 400, Msg: "action must be suspend, unsuspend or remove"}
 }
 
 // Provision implements plugin.Provisioner: it adds a mail domain for an
@@ -309,6 +363,9 @@ func (p *Plugin) Provision(ctx context.Context, a model.Account, body json.RawMe
 		return nil, err
 	}
 	mc := p.mailcow(c)
+	if req.Action != "" {
+		return p.domainAction(ctx, c, mc, a, d, req.Action)
+	}
 	if o, ok := p.owners(ctx)[d]; ok {
 		if o.Account != a.ID {
 			return nil, &plugin.Error{Code: 409, Msg: d + " is a mail domain of another account"}
@@ -359,6 +416,7 @@ func (p *Plugin) AccountChanged(ctx context.Context, a model.Account, event stri
 	if len(domains) == 0 {
 		return
 	}
+	owners := p.owners(ctx)
 	c, err := p.host.Config(ctx)
 	if err != nil {
 		return
@@ -368,6 +426,9 @@ func (p *Plugin) AccountChanged(ctx context.Context, a model.Account, event stri
 		var err error
 		switch event {
 		case plugin.AccountSuspended, plugin.AccountUnsuspended:
+			if event == plugin.AccountUnsuspended && owners[d].Paused {
+				continue // its mail service is still suspended
+			}
 			on := map[bool]string{true: "0", false: "1"}[event == plugin.AccountSuspended]
 			err = mc.EditDomain(ctx, d, map[string]any{"active": on})
 			if err == nil {

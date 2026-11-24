@@ -39,7 +39,7 @@ export interface Event { id: number; time: string; level: string; kind: string; 
 export interface Service { name: string; label: string; active: string }
 export interface Disk { path: string; total: number; free: number }
 export interface User { id: string; username: string; email: string; totp_enabled: boolean; role: 'admin' | 'customer'; account_id: string }
-export interface Account { id: string; name: string; email: string; notes: string; suspended: boolean; plan_id: string; external_id?: string; created_at: string }
+export interface Account { id: string; name: string; email: string; notes: string; suspended: boolean; plan_id: string; addon_plans?: string[]; external_id?: string; created_at: string }
 export interface APIToken { id: string; name: string; scope: 'provisioning' | 'full'; prefix: string; created_by: string; created_at: string; last_used?: string }
 export interface Plan {
   id: string; name: string; max_sites: number; disk_mb: number; dns_zones: number; max_domains: number; memory_mb: number; workers: number;

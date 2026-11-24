@@ -181,6 +181,8 @@ func (s *Server) Handler() http.Handler {
 	ad("POST /api/provision/accounts/{id}/login-link", s.provLoginLink)
 	ad("DELETE /api/provision/accounts/{id}", s.provTerminate)
 	ad("POST /api/provision/accounts/{id}/plugins/{plugin}", s.provPlugin)
+	ad("POST /api/provision/accounts/{id}/addons", s.provAddAddon)
+	ad("DELETE /api/provision/accounts/{id}/addons/{plan}", s.provRemoveAddon)
 	mux.HandleFunc("GET /api/sso/{token}", s.sso)
 
 	mux.HandleFunc("GET /api/brand/{kind}", s.brandAsset)

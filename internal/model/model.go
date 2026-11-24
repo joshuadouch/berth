@@ -688,6 +688,9 @@ type Account struct {
 	Suspended bool `json:"suspended"`
 	// PlanID is the hosting plan that limits the account ("" = no limits).
 	PlanID string `json:"plan_id"`
+	// AddonPlans are extra plans on top of PlanID, e.g. business email
+	// bought alongside hosting. Their mail and DNS limits add to the plan's.
+	AddonPlans []string `json:"addon_plans,omitempty"`
 	// ExternalID is the billing system's ID for the account (service ID,
 	// client ID...), set through the provisioning API. Unique when set.
 	ExternalID string    `json:"external_id,omitempty"`
@@ -778,6 +781,31 @@ func (a *Account) Normalize() error {
 		return errors.New("email looks invalid")
 	}
 	return nil
+}
+
+// WithAddon adds an add-on's mail and DNS limits to a plan. The base plan
+// keeps its hosting limits; a base plan without mail or DNS takes the
+// add-on's (0 means none there, not unlimited).
+func (p Plan) WithAddon(a Plan) Plan {
+	sum := func(base, more int) int {
+		// 0 = unlimited for these, so unlimited stays unlimited.
+		if base == 0 || more == 0 {
+			return 0
+		}
+		return base + more
+	}
+	hadMail := p.MailDomains > 0
+	p.MailDomains += a.MailDomains
+	if hadMail {
+		p.Mailboxes = sum(p.Mailboxes, a.Mailboxes)
+		p.MailAliases = sum(p.MailAliases, a.MailAliases)
+		p.MailStorageMB = sum(p.MailStorageMB, a.MailStorageMB)
+	} else {
+		p.Mailboxes, p.MailAliases, p.MailStorageMB = a.Mailboxes, a.MailAliases, a.MailStorageMB
+	}
+	p.DNSZones += a.DNSZones
+	p.Name += " + " + a.Name
+	return p
 }
 
 // Event is an entry in the activity log.
