@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -257,3 +258,59 @@ func TestBrandAssets(t *testing.T) {
 }
 
 func waitABit() { time.Sleep(50 * time.Millisecond) }
+
+func TestProvisionAddons(t *testing.T) {
+	ts, st := testServer(t)
+	admin := &client{t: t, ts: ts}
+	admin.do("POST", "/api/setup", map[string]string{"username": "josh", "email": "josh@example.com", "password": "correct horse battery"}, false)
+	_, host := admin.do("POST", "/api/plans", map[string]any{"name": "Hosting", "max_sites": 3, "dns_zones": 2}, true)
+	_, mail := admin.do("POST", "/api/plans", map[string]any{"name": "Business Email", "no_sites": true, "mail_domains": 1, "mailboxes": 5, "dns_zones": 1}, true)
+	_, out := admin.do("POST", "/api/tokens", map[string]any{"name": "billing"}, true)
+	tok := out["token"].(string)
+	code, out := bearerDo(t, admin, tok, "POST", "/api/provision/accounts", map[string]any{"name": "Dana", "email": "dana@shop.test", "plan": "Hosting", "external_id": "svc-1"})
+	if code != 201 {
+		t.Fatal(code, out)
+	}
+	id := out["account"].(map[string]any)["id"].(string)
+
+	for range 2 { // adding twice is fine
+		if code, out = bearerDo(t, admin, tok, "POST", "/api/provision/accounts/ext:svc-1/addons", map[string]any{"plan": "Business Email"}); code != 200 {
+			t.Fatal(code, out)
+		}
+	}
+	a, _ := st.Account(context.Background(), id)
+	if len(a.AddonPlans) != 1 || a.AddonPlans[0] != mail["id"] {
+		t.Fatalf("add-ons: %v", a.AddonPlans)
+	}
+	p, ok := st.AccountPlan(context.Background(), id)
+	if !ok || p.ID != host["id"] || p.MaxSites != 3 || p.NoSites || p.MailDomains != 1 || p.Mailboxes != 5 || p.DNSZones != 3 {
+		t.Fatalf("merged plan: %+v", p)
+	}
+	if code, _ := admin.do("DELETE", "/api/plans/"+mail["id"].(string), nil, true); code != 400 {
+		t.Errorf("deleted a plan in use as an add-on: %d", code)
+	}
+	if code, out = bearerDo(t, admin, tok, "POST", "/api/provision/accounts/"+id+"/addons", map[string]any{"plan": "nope"}); code != 400 {
+		t.Errorf("unknown add-on: %d %v", code, out)
+	}
+	if code, out = bearerDo(t, admin, tok, "DELETE", "/api/provision/accounts/"+id+"/addons/Business%20Email", nil); code != 200 {
+		t.Fatal(code, out)
+	}
+	if p, _ := st.AccountPlan(context.Background(), id); p.MailDomains != 0 || p.DNSZones != 2 {
+		t.Fatalf("after removing the add-on: %+v", p)
+	}
+	// An add-on alone is the account's plan.
+	_ = bearerDoOK(t, admin, tok, "PATCH", "/api/provision/accounts/"+id, map[string]any{"plan": ""})
+	_ = bearerDoOK(t, admin, tok, "POST", "/api/provision/accounts/"+id+"/addons", map[string]any{"plan": "Business Email"})
+	if p, ok := st.AccountPlan(context.Background(), id); !ok || !p.NoSites || p.MailDomains != 1 {
+		t.Fatalf("add-on only: %+v %v", p, ok)
+	}
+}
+
+func bearerDoOK(t *testing.T, c *client, token, method, path string, body any) map[string]any {
+	t.Helper()
+	code, out := bearerDo(t, c, token, method, path, body)
+	if code >= 300 {
+		t.Fatalf("%s %s: %d %v", method, path, code, out)
+	}
+	return out
+}

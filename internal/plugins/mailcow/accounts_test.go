@@ -213,3 +213,43 @@ func TestBerthZoneRecords(t *testing.T) {
 		t.Fatal("a customer's own zone proves the domain")
 	}
 }
+
+func TestProvisionDomainActions(t *testing.T) {
+	r, a := customerRig(t, model.Plan{MailDomains: 2})
+	ctx := context.Background()
+	do := func(action string) (any, error) {
+		body, _ := json.Marshal(map[string]string{"domain": "dana.shop", "action": action})
+		return r.reg.Provision(ctx, "mailcow", a, body)
+	}
+	if _, err := do("suspend"); err == nil {
+		t.Fatal("suspended a domain the account does not have")
+	}
+	if _, err := do(""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := do("suspend"); err != nil || r.mc.domains["dana.shop"]["active"] != "0" {
+		t.Fatal("suspend", err)
+	}
+	// The account coming back does not wake a domain paused on its own.
+	r.reg.AccountChanged(ctx, a, plugin.AccountSuspended)
+	r.reg.AccountChanged(ctx, a, plugin.AccountUnsuspended)
+	if r.mc.domains["dana.shop"]["active"] != "0" {
+		t.Fatal("unsuspending the account resumed a paused mail domain")
+	}
+	if _, err := do("unsuspend"); err != nil || r.mc.domains["dana.shop"]["active"] != "1" {
+		t.Fatal("unsuspend", err)
+	}
+	if _, err := do("bogus"); err == nil {
+		t.Fatal("bad action accepted")
+	}
+	if _, err := do("remove"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.mc.domains["dana.shop"]; ok || len(r.p.owned(ctx, a.ID)) != 0 {
+		t.Fatal("domain not removed")
+	}
+	// Removing again is fine.
+	if _, err := do("remove"); err != nil {
+		t.Fatal(err)
+	}
+}

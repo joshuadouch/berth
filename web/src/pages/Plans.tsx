@@ -40,7 +40,7 @@ export default function Plans() {
                 <td>{limit(p.dns_zones)}</td>
                 <td className="muted">{p.cpu_percent || p.ram_mb ? `${p.cpu_percent ? p.cpu_percent + '%' : '–'} · ${p.ram_mb ? mbLabel(p.ram_mb) : '–'}` : '—'}</td>
                 </>}
-                <td className="muted wrap">{p.mail_domains > 0 ? `${p.mail_domains} domain${p.mail_domains === 1 ? '' : 's'} · ${limit(p.mailboxes, ' mailboxes')} · ${mbLabel(p.mail_storage_mb)}` : '—'}</td>
+                <td className="muted wrap">{p.mail_domains > 0 ? `${p.mail_domains} domain${p.mail_domains === 1 ? '' : 's'} · ${p.mailboxes ? p.mailboxes + ' mailboxes' : 'unlimited mailboxes'} · ${mbLabel(p.mail_storage_mb)}` : '—'}</td>
                 <td style={{ textAlign: 'right' }}>{p.accounts === 0 && <button className="btn s ghost" onClick={(e) => { e.stopPropagation(); remove(p); }}>Delete</button>}</td>
               </tr>
             ))}</tbody>
@@ -119,12 +119,15 @@ export function UsageCard({ u, title = 'Plan' }: { u: PlanUsage; title?: string 
   return (
     <div className="card"><div className="ch"><h3>{title}</h3>{p ? <Badge kind="v">{p.name}</Badge> : <Badge kind="n">No limits</Badge>}</div><div className="cb">
       <div className="kv">
-        <div>Sites</div><div>{u.sites}{p?.max_sites ? ' of ' + p.max_sites : ''}{p && bar(u.sites, p.max_sites)}</div>
-        <div>Disk</div><div>{bytes(u.disk_used)}{p?.disk_mb ? ' of ' + mbLabel(p.disk_mb) : ''}{p && bar(u.disk_used, p.disk_mb * 1048576)}</div>
+        {!p?.no_sites && <>
+          <div>Sites</div><div>{u.sites}{p?.max_sites ? ' of ' + p.max_sites : ''}{p && bar(u.sites, p.max_sites)}</div>
+          <div>Disk</div><div>{bytes(u.disk_used)}{p?.disk_mb ? ' of ' + mbLabel(p.disk_mb) : ''}{p && bar(u.disk_used, p.disk_mb * 1048576)}</div>
+        </>}
         {p && <>
-          <div>Per site</div><div className="muted">{limit(p.max_domains, ' domains')} · {mbLabel(p.memory_mb)} PHP memory · {limit(p.workers, ' workers')} · {mbLabel(p.upload_mb)} uploads</div>
+          {!p.no_sites && <><div>Per site</div><div className="muted">{limit(p.max_domains, ' domains')} · {mbLabel(p.memory_mb)} PHP memory · {limit(p.workers, ' workers')} · {mbLabel(p.upload_mb)} uploads</div></>}
+          {p.mail_domains > 0 && <><div>Email</div><div className="muted">{p.mail_domains} domain{p.mail_domains === 1 ? '' : 's'} · {p.mailboxes ? p.mailboxes + ' mailboxes' : 'unlimited mailboxes'}{p.mail_storage_mb ? ' · ' + mbLabel(p.mail_storage_mb) + ' storage' : ''}</div></>}
           {p.dns_zones > 0 && <><div>DNS domains</div><div>{p.dns_zones}</div></>}
-          {(p.cpu_percent > 0 || p.ram_mb > 0) && <><div>Resources</div><div className="muted">{p.cpu_percent ? p.cpu_percent + '% CPU' : 'any CPU'} · {p.ram_mb ? mbLabel(p.ram_mb) + ' memory' : 'any memory'} for all sites</div></>}
+          {!p.no_sites && (p.cpu_percent > 0 || p.ram_mb > 0) && <><div>Resources</div><div className="muted">{p.cpu_percent ? p.cpu_percent + '% CPU' : 'any CPU'} · {p.ram_mb ? mbLabel(p.ram_mb) + ' memory' : 'any memory'} for all sites</div></>}
         </>}
       </div>
     </div></div>

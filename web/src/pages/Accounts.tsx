@@ -82,13 +82,13 @@ export function AccountPage() {
   const { data, error, reload } = useLoad(() => get<AccountView>('/accounts/' + id), [id]);
   const sites = useLoad(() => get<SiteRow[]>('/sites?account=' + encodeURIComponent(id)), [id]);
   const plans = useLoad(() => get<Plan[]>('/plans'));
-  const [f, setF] = useState<{ name: string; email: string; notes: string; suspended: boolean; plan_id: string } | null>(null);
+  const [f, setF] = useState<{ name: string; email: string; notes: string; suspended: boolean; plan_id: string; addon_plans: string[] } | null>(null);
   const [err, setErr] = useState<unknown>(null);
   const [userModal, setUserModal] = useState<User | 'new' | null>(null);
   const toast = useToast();
   const nav = useNavigate();
   if (!data) return error ? <ErrorBox error={error} /> : <Loading />;
-  const form = f ?? { name: data.name, email: data.email, notes: data.notes, suspended: data.suspended, plan_id: data.plan_id ?? '' };
+  const form = f ?? { name: data.name, email: data.email, notes: data.notes, suspended: data.suspended, plan_id: data.plan_id ?? '', addon_plans: data.addon_plans ?? [] };
   const set = (p: Partial<typeof form>) => setF({ ...form, ...p });
   const own = data.id === me?.user.account_id;
   const go = (fn: () => Promise<unknown>, ok: string) => async () => {
@@ -114,6 +114,14 @@ export function AccountPage() {
               <select className="input" value={form.plan_id} onChange={(e) => set({ plan_id: e.target.value })}>
                 <option value="">No plan (no limits)</option>
                 {plans.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+            <Field label="Add-ons" help="Extra plans on top, e.g. business email with hosting. Their mail and DNS limits add to the plan's.">
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                {form.addon_plans.map((id) => <span key={id} className="badge v" style={{ gap: 6 }}>{plans.data?.find((p) => p.id === id)?.name ?? id}
+                  <a href="#" aria-label="Remove add-on" onClick={(e) => { e.preventDefault(); set({ addon_plans: form.addon_plans.filter((x) => x !== id) }); }}>×</a></span>)}
+                <select className="input" style={{ width: 'auto' }} value="" onChange={(e) => e.target.value && set({ addon_plans: [...form.addon_plans, e.target.value] })}>
+                  <option value="">Add an add-on…</option>
+                  {plans.data?.filter((p) => p.id !== form.plan_id && !form.addon_plans.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+              </div></Field>
             {data.external_id && <Field label="Billing system ID" help="Set through the provisioning API."><input className="input mono" value={data.external_id} readOnly /></Field>}
             <Field label="Notes (only admins see these)"><textarea className="input" rows={3} value={form.notes} onChange={(e) => set({ notes: e.target.value })} /></Field>
             {!own && <Toggle on={form.suspended} onChange={(v) => set({ suspended: v })} label="Suspended" help="Suspended accounts are signed out and cannot sign in. Their sites keep running." />}

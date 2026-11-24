@@ -688,12 +688,30 @@ func (s *Store) DeletePlan(ctx context.Context, id string) error {
 	return s.SetKV(ctx, "plans", out)
 }
 
-// AccountPlan returns the plan of an account, and false when it has none.
+// AccountPlan returns the plan of an account with its add-ons folded in,
+// and false when it has neither.
 func (s *Store) AccountPlan(ctx context.Context, accountID string) (model.Plan, bool) {
 	a, err := s.Account(ctx, accountID)
-	if err != nil || a.PlanID == "" {
+	if err != nil {
 		return model.Plan{}, false
 	}
-	p, err := s.Plan(ctx, a.PlanID)
-	return p, err == nil
+	var p model.Plan
+	ok := false
+	if a.PlanID != "" {
+		if p, err = s.Plan(ctx, a.PlanID); err == nil {
+			ok = true
+		}
+	}
+	for _, id := range a.AddonPlans {
+		ap, err := s.Plan(ctx, id)
+		if err != nil {
+			continue
+		}
+		if !ok {
+			p, ok = ap, true
+			continue
+		}
+		p = p.WithAddon(ap)
+	}
+	return p, ok
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -256,6 +257,18 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	next := cur
 	next.Name, next.Email, next.Notes, next.Suspended, next.PlanID = req.Name, req.Email, req.Notes, req.Suspended, req.PlanID
+	if req.AddonPlans != nil {
+		next.AddonPlans = []string{}
+		for _, id := range req.AddonPlans {
+			if _, err := s.Store.Plan(r.Context(), id); err != nil {
+				writeErr(w, 400, "no such add-on plan")
+				return
+			}
+			if !slices.Contains(next.AddonPlans, id) {
+				next.AddonPlans = append(next.AddonPlans, id)
+			}
+		}
+	}
 	// The external ID belongs to the provisioning API; the panel form leaves it.
 	if err := next.Normalize(); err != nil {
 		writeErr(w, 400, err.Error())

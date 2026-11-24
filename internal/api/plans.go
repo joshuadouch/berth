@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/joshuadouch/berth/internal/model"
@@ -41,7 +42,7 @@ func (s *Server) listPlans(w http.ResponseWriter, r *http.Request) {
 	for _, p := range plans {
 		v := planView{Plan: p}
 		for _, a := range accounts {
-			if a.PlanID == p.ID {
+			if a.PlanID == p.ID || slices.Contains(a.AddonPlans, p.ID) {
 				v.Accounts++
 			}
 		}
@@ -114,6 +115,10 @@ func (s *Server) deletePlan(w http.ResponseWriter, r *http.Request) {
 	for _, a := range accounts {
 		if a.PlanID == p.ID {
 			writeErr(w, 400, "move "+a.Name+" to another plan first")
+			return
+		}
+		if slices.Contains(a.AddonPlans, p.ID) {
+			writeErr(w, 400, a.Name+" has this plan as an add-on; take it off first")
 			return
 		}
 	}
