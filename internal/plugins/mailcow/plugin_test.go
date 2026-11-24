@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/joshuadouch/berth/internal/model"
 	"github.com/joshuadouch/berth/internal/plugin"
 	"github.com/joshuadouch/berth/internal/store"
 )
@@ -69,7 +71,12 @@ func (f *fakeMailcow) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			out([]map[string]any{{"type": "danger", "msg": []string{"domain_exists", name}}})
 			return
 		}
-		f.domains[name] = map[string]any{"domain_name": name, "active": "1", "relayhost": "0", "max_quota_for_domain": 10240 << 20, "mboxes_in_domain": 0}
+		q, _ := strconv.Atoi(fmt.Sprint(body["quota"]))
+		mbx, _ := strconv.Atoi(fmt.Sprint(body["mailboxes"]))
+		if q == 0 {
+			q = 10240
+		}
+		f.domains[name] = map[string]any{"domain_name": name, "active": "1", "relayhost": "0", "max_quota_for_domain": q << 20, "mboxes_in_domain": 0, "max_num_mboxes_for_domain": mbx}
 		out(ok)
 	case p == "edit/domain":
 		attr := body["attr"].(map[string]any)
@@ -108,14 +115,33 @@ func (f *fakeMailcow) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			out([]map[string]any{{"type": "danger", "msg": "password_mismatch"}})
 			return
 		}
+		if d, ok := f.domains[body["domain"].(string)]; ok {
+			d["mboxes_in_domain"] = float64(num(d["mboxes_in_domain"]) + 1)
+		}
 		f.mailboxes = append(f.mailboxes, map[string]any{"username": body["local_part"].(string) + "@" + body["domain"].(string), "domain": body["domain"], "local_part": body["local_part"], "name": body["name"], "quota": 1 << 30, "active": "1"})
 		out(ok)
 	case p == "get/alias/all":
 		out(f.aliases)
 	case p == "add/alias":
+		if d, ok := f.domains[strings.SplitN(body["address"].(string), "@", 2)[1]]; ok {
+			d["aliases_in_domain"] = float64(num(d["aliases_in_domain"]) + 1)
+		}
 		f.aliases = append(f.aliases, map[string]any{"id": len(f.aliases) + 1, "address": body["address"], "goto": body["goto"], "domain": strings.SplitN(body["address"].(string), "@", 2)[1], "active": 1})
 		out(ok)
 	case p == "delete/alias":
+		out(ok)
+	case p == "delete/mailbox":
+		for _, it := range list {
+			for i, m := range f.mailboxes {
+				if m["username"] == it {
+					f.mailboxes = append(f.mailboxes[:i], f.mailboxes[i+1:]...)
+					if d, ok := f.domains[m["domain"].(string)]; ok {
+						d["mboxes_in_domain"] = float64(num(d["mboxes_in_domain"]) - 1)
+					}
+					break
+				}
+			}
+		}
 		out(ok)
 	default:
 		w.WriteHeader(404)
@@ -210,6 +236,9 @@ type rig struct {
 	ses *fakeSES
 	dns *fakeDNS
 	h   http.Handler
+	st  *store.Store
+	// user makes the requests; an admin unless a test says otherwise.
+	user model.User
 }
 
 func newRig(t *testing.T) *rig {
@@ -237,7 +266,12 @@ func newRig(t *testing.T) *rig {
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/api/p/{id}/", reg)
-	return &rig{t: t, p: p, reg: reg, mc: mc, ses: ses, dns: dns, h: mux}
+	admin := model.User{ID: "u-admin", Username: "admin", Role: model.RoleAdmin, AccountID: "acc-admin", PasswordHash: "x"}
+	_ = st.SaveAccount(context.Background(), model.Account{ID: "acc-admin", Name: "Admin"})
+	if err := st.SaveUser(context.Background(), admin); err != nil {
+		t.Fatal(err)
+	}
+	return &rig{t: t, p: p, reg: reg, mc: mc, ses: ses, dns: dns, h: mux, st: st, user: admin}
 }
 
 func (r *rig) do(method, path string, body any) (int, map[string]any) {
@@ -246,6 +280,7 @@ func (r *rig) do(method, path string, body any) (int, map[string]any) {
 		_ = json.NewEncoder(&buf).Encode(body)
 	}
 	req := httptest.NewRequest(method, "/api/p/mailcow"+path, &buf)
+	req = req.WithContext(plugin.WithUser(req.Context(), r.user))
 	rec := httptest.NewRecorder()
 	r.h.ServeHTTP(rec, req)
 	var out map[string]any

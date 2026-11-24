@@ -717,6 +717,11 @@ type Plan struct {
 	// AllowShell leaves exec(), system() and friends on in PHP.
 	AllowShell bool `json:"allow_shell"`
 	NoSFTP     bool `json:"no_sftp"`
+	// Mail (the mailcow plugin), per account. MailDomains 0 = no mail.
+	MailDomains   int `json:"mail_domains"`
+	Mailboxes     int `json:"mailboxes"`       // across all of its mail domains
+	MailAliases   int `json:"mail_aliases"`    // across all of its mail domains
+	MailStorageMB int `json:"mail_storage_mb"` // all mailboxes together
 }
 
 // Isolated reports whether the plan's accounts get PHP processes of their own.
@@ -731,7 +736,7 @@ func (p *Plan) Normalize() error {
 	if p.Name == "" || len(p.Name) > 60 {
 		return errors.New("plan name must be 1-60 characters")
 	}
-	for _, n := range []int{p.MaxSites, p.DiskMB, p.DNSZones, p.MaxDomains, p.MemoryMB, p.Workers, p.UploadMB, p.DBConnections, p.CPUPercent, p.RAMMB, p.MaxProcesses} {
+	for _, n := range []int{p.MaxSites, p.DiskMB, p.DNSZones, p.MaxDomains, p.MemoryMB, p.Workers, p.UploadMB, p.DBConnections, p.CPUPercent, p.RAMMB, p.MaxProcesses, p.MailDomains, p.Mailboxes, p.MailAliases, p.MailStorageMB} {
 		if n < 0 {
 			return errors.New("limits cannot be negative")
 		}

@@ -196,6 +196,7 @@ type Domain struct {
 	TransportHost string `json:"transport_host"` // filled by the plugin
 	Site          string `json:"site,omitempty"` // Berth site with this domain
 	Pending       bool   `json:"pending,omitempty"`
+	Owner         string `json:"owner,omitempty"` // Berth account, filled by the plugin
 }
 
 func domainFrom(m map[string]any) Domain {

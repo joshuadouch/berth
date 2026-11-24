@@ -31,6 +31,7 @@ type Plugin struct {
 	sesBase    string
 	cfBase     string
 	dns        DNS
+	zoneHost   zoneHost
 }
 
 // New returns the plugin.
@@ -43,16 +44,16 @@ func (p *Plugin) Info() plugin.Info {
 	return plugin.Info{
 		ID:          "mailcow",
 		Name:        "Mailcow",
-		Description: "Manage mailcow mail domains, mailboxes and aliases. New domains are verified in Amazon SES and send their mail through it, with the DNS records created in Cloudflare.",
+		Description: "Manage mailcow mail domains, mailboxes and aliases. New domains are verified in Amazon SES and send their mail through it, with the DNS records created on Berth's nameservers or in Cloudflare. Customers whose plan includes mail get a Mail page for their own domains.",
 		Version:     "1.0",
 		Icon:        "mail",
 		NavLabel:    "Mail",
-		AdminOnly:   true,
 		Fields: []plugin.Field{
 			{Key: "url", Label: "mailcow address", Type: plugin.Text, Section: sec, Required: true, Placeholder: "https://mail.example.com", Help: "The address of your mailcow web UI."},
 			{Key: "api_key", Label: "API key", Type: plugin.Secret, Section: sec, Required: true, Help: "mailcow → System → Configuration → Access → API: a read-write key. Add this server's IP to the allowed networks."},
 			{Key: "insecure", Label: "Skip certificate check", Type: plugin.Bool, Section: sec, Help: "Only for a mailcow with a self-signed certificate."},
 			{Key: "mail_host", Label: "Mail server hostname", Type: plugin.Text, Section: sec, Placeholder: "mail.example.com", Help: "What MX and autodiscover records point at. Blank uses the host of the mailcow address."},
+			{Key: "webmail_url", Label: "Webmail address", Type: plugin.Text, Section: sec, Placeholder: "https://webmail.example.com/", Help: "Where the Mail page's Webmail button goes. Blank uses mailcow's SOGo on the mail server hostname."},
 			{Key: "max_mailboxes", Label: "Mailboxes per new domain", Type: plugin.Number, Section: "New domains", Default: 25},
 			{Key: "max_aliases", Label: "Aliases per new domain", Type: plugin.Number, Section: "New domains", Default: 100},
 			{Key: "domain_quota_mb", Label: "Domain storage (MB)", Type: plugin.Number, Section: "New domains", Default: 10240},
@@ -265,7 +266,7 @@ func (p *Plugin) setPending(ctx context.Context, domain string, on bool) {
 
 // Setup makes sure a mailcow domain has its DKIM key, SES identity, MAIL FROM,
 // SES transport (when wanted) and DNS records. It is safe to run again.
-func (p *Plugin) Setup(ctx context.Context, c plugin.Config, domain string, useSES bool) SetupResult {
+func (p *Plugin) Setup(ctx context.Context, c plugin.Config, domain, owner string, useSES bool) SetupResult {
 	var res SetupResult
 	mc := p.mailcow(c)
 
@@ -326,7 +327,7 @@ func (p *Plugin) Setup(ctx context.Context, c plugin.Config, domain string, useS
 		}
 	}
 
-	d, mode := p.dnsFor(c)
+	d, mode := p.dnsForDomain(ctx, c, owner, domain)
 	create := mode != "lookup" && c.Bool("dns_create")
 	res.Records = Check(ctx, d, plan.Records(), create)
 	var made, missing, clash, failed int
@@ -348,11 +349,12 @@ func (p *Plugin) Setup(ctx context.Context, c plugin.Config, domain string, useS
 	case clash > 0:
 		res.add("DNS records", "warn", fmt.Sprintf("%d clash with records that are already there; fix those by hand", clash))
 	case missing > 0 && mode == "lookup":
-		res.add("DNS records", "warn", fmt.Sprintf("Add the %d missing records shown below at your DNS provider (or add a Cloudflare token)", missing))
+		res.add("DNS records", "warn", fmt.Sprintf("Add the %d missing records shown below at the domain's DNS provider", missing))
 	case missing > 0:
 		res.add("DNS records", "warn", fmt.Sprintf("%d missing (record creation is off)", missing))
 	case made > 0:
-		res.add("DNS records", "ok", fmt.Sprintf("Created %d in Cloudflare", made))
+		where := map[string]string{"berth": "on Berth's nameservers", "cloudflare": "in Cloudflare"}[mode]
+		res.add("DNS records", "ok", strings.TrimSpace(fmt.Sprintf("Created %d %s", made, where)))
 	default:
 		res.add("DNS records", "ok", "All in place")
 	}
@@ -433,6 +435,7 @@ func (p *Plugin) Init(h *plugin.Host) http.Handler {
 	m.HandleFunc("GET /domains/{domain}", p.getDomain)
 	m.HandleFunc("PUT /domains/{domain}", p.editDomain)
 	m.HandleFunc("DELETE /domains/{domain}", p.deleteDomain)
+	m.HandleFunc("PUT /domains/{domain}/owner", p.setOwnerHandler)
 	m.HandleFunc("POST /domains/{domain}/setup", p.setupDomain)
 	m.HandleFunc("POST /domains/{domain}/mailboxes", p.addMailbox)
 	m.HandleFunc("PUT /mailboxes/{address}", p.editMailbox)
@@ -501,25 +504,54 @@ func (p *Plugin) overview(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	mc := p.mailcow(c)
+	acc, isCustomer := customer(r)
 	_, mode := p.dnsFor(c)
 	out := map[string]any{"domains": []Domain{}, "suggestions": []string{}, "ses": p.ses(c) != nil, "ses_default": c.Bool("ses_default"),
-		"dns_mode": mode, "mail_host": mailHost(c), "url": c.Str("url"), "mailbox_quota_mb": c.Int("mailbox_quota_mb")}
-	ds, err := mc.Domains(ctx)
+		"dns_mode": mode, "mail_host": mailHost(c), "webmail": webmail(c), "mailbox_quota_mb": c.Int("mailbox_quota_mb"), "customer": isCustomer}
+	if !isCustomer {
+		out["url"] = c.Str("url")
+	}
+	all, err := mc.Domains(ctx)
 	if err != nil {
 		out["error"] = err.Error()
 		plugin.WriteJSON(w, 200, out)
 		return
 	}
+	owners := p.owners(ctx)
+	admin := p.host.AdminAccount(ctx)
+	var ds []Domain
+	for _, d := range all {
+		d.Owner = admin
+		if o, ok := owners[d.Name]; ok {
+			d.Owner = o.Account
+		}
+		if !isCustomer || d.Owner == acc {
+			ds = append(ds, d)
+		}
+	}
 	p.decorate(ctx, mc, ds)
 	sort.Slice(ds, func(i, j int) bool { return ds[i].Name < ds[j].Name })
-	out["domains"] = ds
+	if ds != nil {
+		out["domains"] = ds
+	}
+	if isCustomer {
+		l, _ := p.limitsOf(ctx, acc)
+		out["limits"] = l
+		out["usage"] = usageOf(ds)
+	} else {
+		out["accounts"] = p.accountList(ctx)
+		out["admin_account"] = admin
+	}
 	have := map[string]bool{}
-	for _, d := range ds {
+	for _, d := range all {
 		have[d.Name] = true
 	}
 	sites, _ := p.host.Sites(ctx)
 	var sug []string
 	for _, s := range sites {
+		if isCustomer && s.AccountID != acc {
+			continue
+		}
 		d := strings.TrimPrefix(strings.ToLower(s.Domain), "www.")
 		if !have[d] && domainRe.MatchString(d) {
 			have[d] = true
@@ -540,6 +572,7 @@ func (p *Plugin) addDomain(w http.ResponseWriter, r *http.Request) {
 		SES          *bool  `json:"ses"`
 		MaxMailboxes int    `json:"max_mailboxes"`
 		QuotaMB      int    `json:"quota_mb"`
+		Account      string `json:"account"` // admins: who owns it ("" = the admin's account)
 	}
 	if err := plugin.ReadJSON(r, &req); err != nil {
 		plugin.WriteErr(w, 400, err.Error())
@@ -556,34 +589,107 @@ func (p *Plugin) addDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	mc := p.mailcow(c)
-	nd := NewDomain{Name: d, Description: req.Description, MaxMailboxes: c.Int("max_mailboxes"), MaxAliases: c.Int("max_aliases"),
-		QuotaMB: c.Int("domain_quota_mb"), DefQuotaMB: c.Int("mailbox_quota_mb")}
-	if req.MaxMailboxes > 0 {
-		nd.MaxMailboxes = req.MaxMailboxes
-	}
-	if req.QuotaMB > 0 {
-		nd.QuotaMB = req.QuotaMB
-	}
-	nd.MaxQuotaMB = nd.QuotaMB
-	if nd.DefQuotaMB > nd.QuotaMB {
-		nd.DefQuotaMB = nd.QuotaMB
+	acc, isCustomer := customer(r)
+	if !isCustomer {
+		acc = req.Account
+		if acc == "" {
+			acc = p.host.AdminAccount(ctx)
+		} else if _, err := p.host.Store.Account(ctx, acc); err != nil {
+			plugin.WriteErr(w, 400, "no such account")
+			return
+		}
 	}
 	if _, err := mc.Domain(ctx, d); err == nil {
-		plugin.WriteErr(w, 409, d+" is already a mail domain in mailcow")
+		plugin.WriteErr(w, 409, d+" is already a mail domain")
 		return
+	}
+	if isCustomer {
+		l, _ := p.limitsOf(ctx, acc)
+		if l.Domains <= 0 {
+			plugin.WriteErr(w, 403, "your plan does not include mail domains")
+			return
+		}
+		if n := len(p.owned(ctx, acc)); n >= l.Domains {
+			plugin.WriteErr(w, 409, fmt.Sprintf("your plan allows %d mail domain(s); remove one or upgrade first", l.Domains))
+			return
+		}
+		if !p.proven(ctx, acc, d) {
+			plugin.WriteJSON(w, 403, map[string]any{
+				"error":  "Prove that " + d + " is yours first: add the TXT record shown, wait a few minutes, then try again.",
+				"verify": map[string]string{"type": "TXT", "name": verifyName(d), "value": verifyValue(acc, d)},
+			})
+			return
+		}
+	}
+	nd, err := p.newDomainFor(ctx, c, mc, acc, d)
+	if err != nil {
+		writePluginErr(w, err)
+		return
+	}
+	nd.Description = req.Description
+	if !isCustomer {
+		if req.MaxMailboxes > 0 {
+			nd.MaxMailboxes = req.MaxMailboxes
+		}
+		if req.QuotaMB > 0 {
+			nd.QuotaMB, nd.MaxQuotaMB = req.QuotaMB, req.QuotaMB
+			if nd.DefQuotaMB > nd.QuotaMB {
+				nd.DefQuotaMB = nd.QuotaMB
+			}
+		}
 	}
 	if err := mc.AddDomain(ctx, nd); err != nil {
 		fail(w, err)
 		return
 	}
+	if err := p.setOwner(ctx, d, acc); err != nil {
+		plugin.WriteErr(w, 500, err.Error())
+		return
+	}
 	useSES := c.Bool("ses_default")
-	if req.SES != nil {
+	if req.SES != nil && !isCustomer {
 		useSES = *req.SES
 	}
-	res := p.Setup(ctx, c, d, useSES)
+	res := p.Setup(ctx, c, d, acc, useSES)
 	res.Steps = append([]Step{{Name: "mailcow domain", Status: "ok", Detail: "Added " + d}}, res.Steps...)
-	p.host.Event(ctx, "info", "Added mail domain "+d)
+	p.host.Event(ctx, "info", plugin.User(r).Username+" added mail domain "+d)
 	plugin.WriteJSON(w, 200, res)
+}
+
+// setOwnerHandler moves a domain to another account (admins).
+func (p *Plugin) setOwnerHandler(w http.ResponseWriter, r *http.Request) {
+	if _, isCustomer := customer(r); isCustomer {
+		plugin.WriteErr(w, 403, "only admins can move mail domains")
+		return
+	}
+	var req struct {
+		Account string `json:"account"`
+	}
+	if err := plugin.ReadJSON(r, &req); err != nil {
+		plugin.WriteErr(w, 400, err.Error())
+		return
+	}
+	ctx := r.Context()
+	a, err := p.host.Store.Account(ctx, req.Account)
+	if err != nil {
+		plugin.WriteErr(w, 400, "no such account")
+		return
+	}
+	c, ok := p.config(w, r)
+	if !ok {
+		return
+	}
+	d := normHost(r.PathValue("domain"))
+	if _, err := p.mailcow(c).Domain(ctx, d); err != nil {
+		fail(w, err)
+		return
+	}
+	if err := p.setOwner(ctx, d, a.ID); err != nil {
+		plugin.WriteErr(w, 500, err.Error())
+		return
+	}
+	p.host.Event(ctx, "info", "Mail domain "+d+" now belongs to "+a.Name)
+	plugin.WriteJSON(w, 200, map[string]any{"message": d + " now belongs to " + a.Name})
 }
 
 func (p *Plugin) setupDomain(w http.ResponseWriter, r *http.Request) {
@@ -593,6 +699,9 @@ func (p *Plugin) setupDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	d := normHost(r.PathValue("domain"))
+	if !p.mayUse(w, r, d) {
+		return
+	}
 	mc := p.mailcow(c)
 	dom, err := mc.Domain(ctx, d)
 	if err != nil {
@@ -606,10 +715,10 @@ func (p *Plugin) setupDomain(w http.ResponseWriter, r *http.Request) {
 		SES *bool `json:"ses"`
 	}
 	_ = plugin.ReadJSON(r, &req)
-	if req.SES != nil {
+	if _, isCustomer := customer(r); req.SES != nil && !isCustomer {
 		useSES = *req.SES
 	}
-	plugin.WriteJSON(w, 200, p.Setup(ctx, c, d, useSES))
+	plugin.WriteJSON(w, 200, p.Setup(ctx, c, d, p.ownerOf(ctx, d), useSES))
 }
 
 func (p *Plugin) getDomain(w http.ResponseWriter, r *http.Request) {
@@ -619,6 +728,9 @@ func (p *Plugin) getDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	d := normHost(r.PathValue("domain"))
+	if !p.mayUse(w, r, d) {
+		return
+	}
 	mc := p.mailcow(c)
 	dom, err := mc.Domain(ctx, d)
 	if err != nil {
@@ -628,7 +740,13 @@ func (p *Plugin) getDomain(w http.ResponseWriter, r *http.Request) {
 	ds := []Domain{dom}
 	p.decorate(ctx, mc, ds)
 	dom = ds[0]
-	out := map[string]any{"domain": dom}
+	owner := p.ownerOf(ctx, d)
+	dom.Owner = owner
+	_, isCustomer := customer(r)
+	out := map[string]any{"domain": dom, "webmail": webmail(c), "mail_host": mailHost(c), "customer": isCustomer}
+	if !isCustomer {
+		out["accounts"] = p.accountList(ctx)
+	}
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	set := func(k string, v any) { mu.Lock(); out[k] = v; mu.Unlock() }
@@ -681,7 +799,7 @@ func (p *Plugin) getDomain(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		set("ses", sesView)
-		dn, mode := p.dnsFor(c)
+		dn, mode := p.dnsForDomain(ctx, c, owner, d)
 		set("dns_mode", mode)
 		set("records", Check(ctx, dn, plan.Records(), false))
 	}()
@@ -705,6 +823,13 @@ func (p *Plugin) editDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	d := normHost(r.PathValue("domain"))
+	if !p.mayUse(w, r, d) {
+		return
+	}
+	if _, isCustomer := customer(r); isCustomer && (req.Active != nil || req.SESTransport != nil) {
+		plugin.WriteErr(w, 403, "only the description can be changed here")
+		return
+	}
 	mc := p.mailcow(c)
 	if _, err := mc.Domain(ctx, d); err != nil {
 		fail(w, err)
@@ -737,7 +862,7 @@ func (p *Plugin) editDomain(w http.ResponseWriter, r *http.Request) {
 				plugin.WriteErr(w, 400, "add Amazon SES keys on the Plugins page first")
 				return
 			}
-			res := p.Setup(ctx, c, d, true)
+			res := p.Setup(ctx, c, d, p.ownerOf(ctx, d), true)
 			id, err := s.Identity(ctx, d)
 			if err == nil && id.VerifiedForSending {
 				msg = "Mail for " + d + " now goes out through Amazon SES"
@@ -760,6 +885,10 @@ func (p *Plugin) deleteDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	d := normHost(r.PathValue("domain"))
+	if !p.mayUse(w, r, d) {
+		return
+	}
+	_, isCustomer := customer(r)
 	mc := p.mailcow(c)
 	mb, err := mc.Mailboxes(ctx, d)
 	if err != nil {
@@ -775,8 +904,9 @@ func (p *Plugin) deleteDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.setPending(ctx, d, false)
+	_ = p.setOwner(ctx, d, "")
 	msg := "Deleted mail domain " + d
-	if r.URL.Query().Get("ses") == "1" {
+	if r.URL.Query().Get("ses") == "1" || isCustomer {
 		if s := p.ses(c); s != nil {
 			if err := s.DeleteIdentity(ctx, d); err != nil {
 				msg += " (removing it from SES failed: " + err.Error() + ")"
@@ -818,9 +948,16 @@ func (p *Plugin) addMailbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := normHost(r.PathValue("domain"))
+	if !p.mayUse(w, r, d) {
+		return
+	}
 	local := strings.ToLower(strings.TrimSpace(req.LocalPart))
 	if !localRe.MatchString(local) {
 		plugin.WriteErr(w, 400, "the part before @ is not valid")
+		return
+	}
+	if err := p.customerLimit(r, c, "mailboxes"); err != nil {
+		writePluginErr(w, err)
 		return
 	}
 	pw, generated := req.Password, false
@@ -870,6 +1007,9 @@ func (p *Plugin) editMailbox(w http.ResponseWriter, r *http.Request) {
 	if req.Active != nil {
 		attr["active"] = map[bool]string{true: "1", false: "0"}[*req.Active]
 	}
+	if !p.mayUse(w, r, domainOf(addr)) {
+		return
+	}
 	if req.Password != nil {
 		pw := *req.Password
 		if pw == "" {
@@ -898,6 +1038,9 @@ func (p *Plugin) deleteMailbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	addr := strings.ToLower(r.PathValue("address"))
+	if !p.mayUse(w, r, domainOf(addr)) {
+		return
+	}
 	if err := p.mailcow(c).DeleteMailbox(r.Context(), addr); err != nil {
 		fail(w, err)
 		return
@@ -920,6 +1063,13 @@ func (p *Plugin) addAlias(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := normHost(r.PathValue("domain"))
+	if !p.mayUse(w, r, d) {
+		return
+	}
+	if err := p.customerLimit(r, c, "aliases"); err != nil {
+		writePluginErr(w, err)
+		return
+	}
 	local := strings.ToLower(strings.TrimSpace(req.LocalPart))
 	addr := "@" + d // catch-all
 	if local != "" && local != "*" {
@@ -956,6 +1106,9 @@ func (p *Plugin) deleteAlias(w http.ResponseWriter, r *http.Request) {
 	}
 	mc := p.mailcow(c)
 	d := normHost(r.PathValue("domain"))
+	if !p.mayUse(w, r, d) {
+		return
+	}
 	id := r.PathValue("id")
 	// Only delete aliases that belong to this domain.
 	al, err := mc.Aliases(r.Context(), d)
@@ -979,4 +1132,37 @@ func (p *Plugin) deleteAlias(w http.ResponseWriter, r *http.Request) {
 	}
 	p.host.Event(r.Context(), "info", "Deleted alias "+addr)
 	plugin.WriteJSON(w, 200, map[string]any{"ok": true})
+}
+
+// customerLimit checks a customer's plan before adding a mailbox or alias.
+func (p *Plugin) customerLimit(r *http.Request, c plugin.Config, what string) error {
+	acc, isCustomer := customer(r)
+	if !isCustomer {
+		return nil
+	}
+	l, _ := p.limitsOf(r.Context(), acc)
+	ds, err := p.accountDomains(r.Context(), p.mailcow(c), acc)
+	if err != nil {
+		return err
+	}
+	u := usageOf(ds)
+	if what == "aliases" {
+		return checkLimit(u.Aliases, l.Aliases, "aliases")
+	}
+	return checkLimit(u.Mailboxes, l.Mailboxes, "mailboxes")
+}
+
+type accountRow struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// accountList names every account, for the admin's owner picker.
+func (p *Plugin) accountList(ctx context.Context) []accountRow {
+	list := []accountRow{}
+	as, _ := p.host.Store.Accounts(ctx)
+	for _, a := range as {
+		list = append(list, accountRow{a.ID, a.Name})
+	}
+	return list
 }

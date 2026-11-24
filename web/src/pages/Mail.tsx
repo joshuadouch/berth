@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { bytes, del, get, post, put } from '../api';
+import { ApiError, bytes, del, get, post, put } from '../api';
 import { Badge, Copyable, ErrorBox, Field, Icon, Loading, Modal, Toggle, useLoad, useToast } from '../ui';
 
 // The mailcow plugin's page. Its API lives under /api/p/mailcow.
@@ -9,11 +9,15 @@ const B = '/p/mailcow';
 interface Domain {
   domain: string; description: string; active: boolean; mailboxes: number; max_mailboxes: number; aliases: number; max_aliases: number;
   quota_mb: number; def_quota_mb: number; max_quota_mb: number; bytes_used: number; relayhost_id: string; messages: number;
-  ses_transport: boolean; transport_host: string; site?: string; pending?: boolean;
+  ses_transport: boolean; transport_host: string; site?: string; pending?: boolean; owner?: string;
 }
+interface Account { id: string; name: string }
+interface Limits { domains: number; mailboxes: number; aliases: number; storage_mb: number }
+interface Usage { domains: number; mailboxes: number; aliases: number; quota_mb: number; bytes_used: number }
 interface Overview {
-  domains: Domain[]; suggestions: string[]; ses: boolean; ses_default: boolean; dns_mode: string; mail_host: string; url: string;
-  mailbox_quota_mb: number; error?: string;
+  domains: Domain[]; suggestions: string[]; ses: boolean; ses_default: boolean; dns_mode: string; mail_host: string; url?: string;
+  webmail: string; mailbox_quota_mb: number; error?: string; customer: boolean;
+  limits?: Limits; usage?: Usage; accounts?: Account[]; admin_account?: string;
 }
 interface Mailbox { address: string; local_part: string; name: string; quota_mb: number; bytes_used: number; messages: number; active: boolean; last_login?: number }
 interface Alias { id: string; address: string; goto: string; active: boolean }
@@ -22,6 +26,7 @@ interface Step { name: string; status: string; detail?: string }
 interface Setup { steps: Step[]; records: DNSRecord[] }
 interface Detail {
   domain: Domain; mailboxes: Mailbox[]; aliases: Alias[]; records: DNSRecord[]; dns_mode: string; mailbox_error?: string; alias_error?: string;
+  webmail: string; mail_host: string; customer: boolean; accounts?: Account[];
   ses: { configured: boolean; identity?: boolean; verified?: boolean; dkim_status?: string; mail_from?: string; mail_from_status?: string; error?: string };
 }
 
@@ -42,15 +47,27 @@ function Domains() {
   const [adding, setAdding] = useState(false);
   const nav = useNavigate();
   if (!data) return error ? <ErrorBox error={error} /> : <Loading />;
+  const l = data.limits, u = data.usage;
+  const full = data.customer && (!l || l.domains <= (u?.domains ?? 0));
+  const names: Record<string, string> = {};
+  (data.accounts ?? []).forEach((a) => { names[a.id] = a.name; });
   return (
     <>
       <div className="head">
-        <div><h1>Mail</h1><div className="sub">Mail domains and mailboxes on mailcow{data.mail_host ? <> (<span className="mono">{data.mail_host}</span>)</> : ''}.{data.ses ? ' Outgoing mail goes through Amazon SES.' : ''}</div></div>
+        <div><h1>Mail</h1><div className="sub">{data.customer
+          ? <>Email on your own domains. Add mailboxes, aliases and forwarders, and read mail in webmail or any mail app.</>
+          : <>Mail domains and mailboxes on mailcow{data.mail_host ? <> (<span className="mono">{data.mail_host}</span>)</> : ''}.{data.ses ? ' Outgoing mail goes through Amazon SES.' : ''}</>}</div></div>
         <div className="row" style={{ gap: 8 }}>
+          {data.webmail && <a className="btn" href={data.webmail} target="_blank" rel="noreferrer"><Icon name="mail" />Webmail</a>}
           {data.url && <a className="btn" href={data.url} target="_blank" rel="noreferrer"><Icon name="ext" />mailcow</a>}
-          <button className="btn p" onClick={() => setAdding(true)} disabled={!!data.error}><Icon name="plus" />Add domain</button>
+          <button className="btn p" onClick={() => setAdding(true)} disabled={!!data.error || full} title={full ? 'Your plan has no more mail domains' : undefined}><Icon name="plus" />Add domain</button>
         </div>
       </div>
+      {data.customer && l && u && <div className="grid3" style={{ marginBottom: 16 }}>
+        <UsageTile label="Mail domains" used={u.domains} max={l.domains} />
+        <UsageTile label="Mailboxes" used={u.mailboxes} max={l.mailboxes} />
+        <UsageTile label="Storage" used={u.bytes_used} max={l.storage_mb * 1048576} fmt={bytes} />
+      </div>}
       {data.error && <div className="err">{data.error}. Check the settings on the <Link to="/plugins">Plugins</Link> page.</div>}
       <div className="card">
         {data.domains.length === 0 ? <div className="empty">
@@ -58,14 +75,15 @@ function Domains() {
           {!data.error && <button className="btn p" onClick={() => setAdding(true)}><Icon name="plus" />Add a domain</button>}
         </div> : (
           <table>
-            <thead><tr><th>Domain</th><th>Mailboxes</th><th>Aliases</th><th>Storage</th><th>Sending</th><th>Status</th></tr></thead>
+            <thead><tr><th>Domain</th>{!data.customer && <th>Account</th>}<th>Mailboxes</th><th>Aliases</th><th>Storage</th>{!data.customer && <th>Sending</th>}<th>Status</th></tr></thead>
             <tbody>{data.domains.map((d) => (
               <tr key={d.domain} className="click" onClick={() => nav('/p/mailcow/' + d.domain)}>
                 <td><b>{d.domain}</b>{d.description && <div className="dim" style={{ fontSize: 11.5 }}>{d.description}</div>}</td>
+                {!data.customer && <td className="muted">{(d.owner && names[d.owner]) || '—'}</td>}
                 <td className="muted">{d.mailboxes} / {d.max_mailboxes}</td>
                 <td className="muted">{d.aliases} / {d.max_aliases}</td>
                 <td className="muted">{bytes(d.bytes_used)} of {bytes(d.quota_mb * 1048576)}</td>
-                <td><Sending d={d} /></td>
+                {!data.customer && <td><Sending d={d} /></td>}
                 <td>{d.active ? <Badge kind="g">● Active</Badge> : <Badge kind="w">Disabled</Badge>}</td>
               </tr>
             ))}</tbody>
@@ -74,6 +92,17 @@ function Domains() {
       </div>
       {adding && <AddDomain o={data} onClose={() => { setAdding(false); reload(); }} />}
     </>
+  );
+}
+
+function UsageTile({ label, used, max, fmt = String }: { label: string; used: number; max: number; fmt?: (n: number) => string }) {
+  const pct = max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0;
+  return (
+    <div className="card"><div className="cb">
+      <div className="dim" style={{ fontSize: 12, fontWeight: 650 }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 800, margin: '4px 0 8px' }}>{fmt(used) === '—' ? '0' : fmt(used)} <span className="dim" style={{ fontSize: 13, fontWeight: 600 }}>of {max > 0 ? fmt(max) : 'unlimited'}</span></div>
+      {max > 0 && <div className="bar"><i style={{ width: pct + '%', background: pct > 90 ? 'var(--bad)' : 'var(--accent)' }} /></div>}
+    </div></div>
   );
 }
 
@@ -88,14 +117,17 @@ function Steps({ steps }: { steps: Step[] }) {
 }
 
 function AddDomain({ o, onClose }: { o: Overview; onClose: () => void }) {
-  const [f, setF] = useState({ domain: '', description: '', ses: o.ses && o.ses_default });
+  const [f, setF] = useState({ domain: '', description: '', ses: o.ses && o.ses_default, account: o.admin_account ?? '' });
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<Setup | null>(null);
+  const [verify, setVerify] = useState<{ type: string; name: string; value: string } | null>(null);
   const nav = useNavigate();
   const go = async () => {
     setErr(null); setBusy(true);
-    try { setRes(await post<Setup>(B + '/domains', f)); } catch (e) { setErr(e); } finally { setBusy(false); }
+    try { setRes(await post<Setup>(B + '/domains', f)); setVerify(null); } catch (e) {
+      if (e instanceof ApiError && e.data?.verify) setVerify(e.data.verify); else setErr(e);
+    } finally { setBusy(false); }
   };
   if (res) {
     return (
@@ -118,12 +150,25 @@ function AddDomain({ o, onClose }: { o: Overview; onClose: () => void }) {
         <datalist id="mail-suggest">{o.suggestions.map((s) => <option key={s} value={s} />)}</datalist>
       </Field>
       <Field label="Description (optional)"><input className="input" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field>
-      {o.ses
+      {verify && <div className="card" style={{ marginBottom: 14 }}><div className="cb">
+        <p style={{ marginBottom: 10 }}><b>First, prove the domain is yours.</b> Add this record where the domain's DNS is managed, wait a few minutes, then press Add domain again.</p>
+        <Field label="Type"><Copyable value={verify.type} /></Field>
+        <Field label="Name"><Copyable value={verify.name} /></Field>
+        <Field label="Value"><Copyable value={verify.value} /></Field>
+        <p className="dim" style={{ fontSize: 12 }}>Domains already on your DNS page don't need this.</p>
+      </div></div>}
+      {!o.customer && (o.accounts ?? []).length > 1 && <Field label="Account" help="Who the domain belongs to. Customers see and manage their own domains.">
+        <select className="input" value={f.account} onChange={(e) => setF({ ...f, account: e.target.value })}>
+          {(o.accounts ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      </Field>}
+      {o.customer ? null : o.ses
         ? <Toggle on={f.ses} onChange={(v) => setF({ ...f, ses: v })} label="Send through Amazon SES"
             help="Adds the domain to SES with DKIM and a custom MAIL FROM, and switches on the SES transport in mailcow as soon as SES has verified it." />
         : <p className="muted" style={{ marginBottom: 14 }}>Amazon SES is not set up, so mail goes out directly from mailcow. Add SES keys on the Plugins page to change that.</p>}
       <p className="dim" style={{ fontSize: 12, marginBottom: 14 }}>
-        {o.dns_mode === 'cloudflare' ? 'Missing DNS records are created in Cloudflare; existing ones are never changed.' : 'Berth will list the DNS records to add at your DNS provider.'}
+        {o.customer ? 'If the domain is on your DNS page, Berth adds the mail records for you. Otherwise it lists the records to add at your DNS provider.'
+          : 'Missing DNS records are created on Berth\'s nameservers when the domain is hosted there, or in Cloudflare when your token can see it; existing ones are never changed. Otherwise Berth lists the records to add.'}
       </p>
       <button className="btn p" disabled={busy || !f.domain.trim()} onClick={go}>{busy ? 'Setting up…' : 'Add domain'}</button>
     </Modal>
@@ -183,11 +228,13 @@ function DomainPage({ domain }: { domain: string }) {
   };
   const fix = () => act(async () => setSetup(await post<Setup>(B + '/domains/' + domain + '/setup')));
   const transport = (on: boolean) => act(async () => toast((await put<{ message: string }>(B + '/domains/' + domain, { ses_transport: on })).message));
+  const owner = (a: string) => act(async () => toast((await put<{ message: string }>(B + '/domains/' + domain + '/owner', { account: a })).message));
   const remove = () => {
-    if (!confirm(`Delete the mail domain ${domain} from mailcow${data.ses.identity ? ' and Amazon SES' : ''}? DNS records are left as they are.`)) return;
+    if (!confirm(data.customer ? `Delete the mail domain ${domain}? Delete its mailboxes first. DNS records are left as they are.` : `Delete the mail domain ${domain} from mailcow${data.ses.identity ? ' and Amazon SES' : ''}? DNS records are left as they are.`)) return;
     act(async () => { await del(B + '/domains/' + domain + '?ses=1'); nav('/p/mailcow'); }, 'Domain deleted');
   };
   const missing = data.records.filter((r) => r.status !== 'ok').length;
+  const writable = data.dns_mode === 'cloudflare' || data.dns_mode === 'berth';
   const s = data.ses;
   return (
     <>
@@ -195,7 +242,8 @@ function DomainPage({ domain }: { domain: string }) {
       <div className="head">
         <div><h1>{d.domain}</h1><div className="sub">{d.description || 'Mail domain'}{d.site && <> · <Link to={'/sites/' + d.site}>Berth site</Link></>}</div></div>
         <div className="row" style={{ gap: 8 }}>
-          <button className="btn" disabled={busy} onClick={() => act(() => put(B + '/domains/' + domain, { active: !d.active }), d.active ? 'Domain disabled' : 'Domain enabled')}>{d.active ? 'Disable' : 'Enable'}</button>
+          {data.webmail && <a className="btn" href={data.webmail} target="_blank" rel="noreferrer"><Icon name="mail" />Webmail</a>}
+          {!data.customer && <button className="btn" disabled={busy} onClick={() => act(() => put(B + '/domains/' + domain, { active: !d.active }), d.active ? 'Domain disabled' : 'Domain enabled')}>{d.active ? 'Disable' : 'Enable'}</button>}
           <button className="btn danger" disabled={busy} onClick={remove}><Icon name="trash" />Delete</button>
         </div>
       </div>
@@ -223,6 +271,27 @@ function DomainPage({ domain }: { domain: string }) {
         </div>
         <div className="stack">
           <div className="card">
+            <div className="ch"><h3>Connect a mail app</h3></div>
+            <div className="cb">
+              <div className="kv">
+                {data.webmail && <><div>Webmail</div><div><a href={data.webmail} target="_blank" rel="noreferrer">{data.webmail.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a></div></>}
+                <div>Username</div><div>The full email address</div>
+                <div>Incoming (IMAP)</div><div className="mono">{data.mail_host} · 993 · SSL/TLS</div>
+                <div>Outgoing (SMTP)</div><div className="mono">{data.mail_host} · 465 SSL/TLS or 587 STARTTLS</div>
+              </div>
+              {!d.active && <div className="err" style={{ marginTop: 12 }}>This domain is paused, so its mailboxes cannot send or receive mail.</div>}
+            </div>
+          </div>
+          {!data.customer && (data.accounts ?? []).length > 1 && <div className="card">
+            <div className="ch"><h3>Account</h3></div>
+            <div className="cb">
+              <select className="input" value={d.owner ?? ''} disabled={busy} onChange={(e) => owner(e.target.value)}>
+                {(data.accounts ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <small className="help" style={{ display: 'block', marginTop: 6 }}>The customer whose Mail page this domain is on.</small>
+            </div>
+          </div>}
+          {!data.customer && <div className="card">
             <div className="ch"><h3>Outgoing mail</h3><Sending d={d} /></div>
             <div className="cb">
               {!s.configured ? <p className="muted">Amazon SES is not set up; mail goes out directly from mailcow. Add SES keys on the <Link to="/plugins">Plugins</Link> page.</p> : <>
@@ -237,7 +306,7 @@ function DomainPage({ domain }: { domain: string }) {
                   help={d.pending ? 'Waiting for SES to verify the domain; Berth checks every 5 minutes and switches the transport on by itself.' : 'Uses mailcow\'s sender-dependent transport for this domain.'} />
               </>}
             </div>
-          </div>
+          </div>}
         </div>
       </div>
       <div style={{ marginTop: 16 }}>
@@ -245,16 +314,16 @@ function DomainPage({ domain }: { domain: string }) {
       <div className="ch"><h3>DNS records</h3>
         <div className="row" style={{ gap: 8, alignItems: 'center' }}>
           {missing ? <Badge kind="w">{missing} to fix</Badge> : <Badge kind="g">All good</Badge>}
-          <button className="btn s" disabled={busy} onClick={fix} title={data.dns_mode === 'cloudflare' ? 'Create missing records in Cloudflare and re-check SES' : 'Re-check'}>{busy ? 'Checking…' : data.dns_mode === 'cloudflare' ? 'Check and fix' : 'Re-check'}</button>
+          <button className="btn s" disabled={busy} onClick={fix} title={writable ? 'Create missing records and re-check' : 'Re-check'}>{busy ? 'Checking…' : writable ? 'Check and fix' : 'Re-check'}</button>
         </div>
       </div>
       <Records records={data.records} />
-      <div className="cb dim" style={{ fontSize: 12 }}>{data.dns_mode === 'cloudflare' ? 'Read from Cloudflare.' : 'Looked up in public DNS. Click a record to copy it.'}</div>
+      <div className="cb dim" style={{ fontSize: 12 }}>{data.dns_mode === 'berth' ? 'Read from the domain\'s zone on your DNS page.' : data.dns_mode === 'cloudflare' ? 'Read from Cloudflare.' : 'Looked up in public DNS. Add the missing ones where the domain\'s DNS is managed; click a record to copy it.'}</div>
     </div>
       </div>
       {mbox && <MailboxModal domain={domain} m={mbox === 'new' ? null : mbox} onClose={() => setMbox(null)} onDone={(pw) => { setMbox(null); if (pw) setNewPw(pw); reload(); }} />}
       {newPw && <Modal title="Mailbox password" onClose={() => setNewPw(null)}>
-        <p className="muted" style={{ marginBottom: 12 }}>Shown once. Sign in at the mailcow webmail or any mail app as <b>{newPw.address}</b>.</p>
+        <p className="muted" style={{ marginBottom: 12 }}>Shown once. Sign in {data.webmail ? <>at <a href={data.webmail} target="_blank" rel="noreferrer">webmail</a></> : 'to webmail'} or any mail app as <b>{newPw.address}</b>.</p>
         <Field label="Password"><Copyable value={newPw.password} /></Field>
         <button className="btn p" onClick={() => setNewPw(null)}>Done</button>
       </Modal>}
@@ -278,7 +347,7 @@ function MailboxModal({ domain, m, onClose, onDone }: { domain: string; m: Mailb
         <Field label="Name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
         <div className="grid2">
           <Field label="Password" help="Blank makes a strong one and shows it once."><input className="input mono" type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
-          <Field label="Storage (MB)" help="Blank uses the plugin default."><input className="input" type="number" min={0} value={f.quota_mb || ''} onChange={(e) => setF({ ...f, quota_mb: +e.target.value })} /></Field>
+          <Field label="Storage (MB)" help="Blank uses the default."><input className="input" type="number" min={0} value={f.quota_mb || ''} onChange={(e) => setF({ ...f, quota_mb: +e.target.value })} /></Field>
         </div>
         <button className="btn p" disabled={busy || !f.local_part.trim()} onClick={() => go(() => post(B + '/domains/' + domain + '/mailboxes', f))}>Add mailbox</button>
       </Modal>

@@ -78,6 +78,13 @@ func TestProvisioningAPI(t *testing.T) {
 	if code != 201 {
 		t.Fatalf("create: %d %v", code, out)
 	}
+	// Plugins a billing system can set up for an account.
+	if code, _ := bearerDo(t, admin, tok, "POST", "/api/provision/accounts/ext:svc-42/plugins/cloudflare", map[string]any{}); code != 400 {
+		t.Errorf("non-provisioning plugin: %d", code)
+	}
+	if code, _ := bearerDo(t, admin, tok, "POST", "/api/provision/accounts/ext:svc-42/plugins/mailcow", map[string]any{"domain": "acme.test"}); code != 409 {
+		t.Errorf("turned-off plugin: %d", code)
+	}
 	acct := out["account"].(map[string]any)
 	if acct["plan_id"] != plan["id"] || acct["external_id"] != "svc-42" || out["username"] != "owner" || len(out["password"].(string)) != 20 {
 		t.Fatalf("created: %v", out)
