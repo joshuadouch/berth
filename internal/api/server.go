@@ -170,6 +170,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Provisioning API for billing systems (see provision.go).
 	ad("GET /api/provision/plans", s.provPlans)
+	ad("PUT /api/provision/plans/{ref}", s.provPutPlan)
 	ad("GET /api/provision/accounts", s.provListAccounts)
 	ad("POST /api/provision/accounts", s.provCreateAccount)
 	ad("GET /api/provision/accounts/{id}", s.provGetAccount)

@@ -131,6 +131,32 @@ func newPassword() string {
 
 func (s *Server) provPlans(w http.ResponseWriter, r *http.Request) { s.listPlans(w, r) }
 
+// provPutPlan creates or updates a plan by ID or name, so a billing system can
+// keep Berth's plans in step with the products it sells. Every limit is set
+// from the body (missing fields mean no limit). Answers 201 when it made a new plan.
+func (s *Server) provPutPlan(w http.ResponseWriter, r *http.Request) {
+	var p model.Plan
+	if err := readJSON(r, &p); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	ref := r.PathValue("ref")
+	status := 200
+	if existing, err := s.findPlan(r.Context(), ref); err == nil {
+		p.ID = existing.ID
+		if strings.TrimSpace(p.Name) == "" {
+			p.Name = existing.Name
+		}
+	} else {
+		p.ID = store.NewID()
+		if strings.TrimSpace(p.Name) == "" {
+			p.Name = ref
+		}
+		status = 201
+	}
+	s.commitPlan(w, r, p, status)
+}
+
 func (s *Server) provListAccounts(w http.ResponseWriter, r *http.Request) {
 	if ext := r.URL.Query().Get("external_id"); ext != "" {
 		a, err := s.accountByExternalID(r.Context(), ext)

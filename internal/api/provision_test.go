@@ -56,6 +56,23 @@ func TestProvisioningAPI(t *testing.T) {
 		t.Errorf("wrong secret accepted: %d", code)
 	}
 
+	// A billing system keeps plans in step: create by name, then update in place.
+	code, out = bearerDo(t, admin, tok, "PUT", "/api/provision/plans/Plus", map[string]any{"max_sites": 5, "disk_mb": 30720, "cpu_percent": 100, "ram_mb": 2048, "max_processes": 100})
+	if code != 201 || out["name"] != "Plus" || out["max_sites"] != float64(5) {
+		t.Fatalf("create plan: %d %v", code, out)
+	}
+	plusID := out["id"]
+	code, out = bearerDo(t, admin, tok, "PUT", "/api/provision/plans/plus", map[string]any{"name": "Plus", "max_sites": 6, "allow_shell": true})
+	if code != 200 || out["id"] != plusID || out["max_sites"] != float64(6) || out["disk_mb"] != float64(0) || out["allow_shell"] != true {
+		t.Fatalf("update plan: %d %v", code, out)
+	}
+	if code, _ := bearerDo(t, admin, tok, "PUT", "/api/provision/plans/Plus", map[string]any{"name": "Pro"}); code != 409 {
+		t.Errorf("rename onto another plan's name: %d", code)
+	}
+	if code, _ := bearerDo(t, admin, tok, "PUT", "/api/provision/plans/Bad", map[string]any{"memory_mb": 8}); code != 400 {
+		t.Errorf("invalid plan accepted: %d", code)
+	}
+
 	// Create on a plan, by name.
 	code, out = bearerDo(t, admin, tok, "POST", "/api/provision/accounts", map[string]any{"name": "Acme Ltd", "email": "Owner@Acme.test", "plan": "starter", "external_id": "svc-42"})
 	if code != 201 {
