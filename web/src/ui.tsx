@@ -66,23 +66,24 @@ export function BrandMark({ logo, name }: { logo?: string; name?: string }) {
 // useFavicon points the browser tab's icon at the uploaded favicon.
 export function useFavicon(favicon?: string) {
   useEffect(() => {
-    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-    if (!link) return;
-    if (!link.dataset.berth) link.dataset.berth = link.href;
-    link.href = favicon ? '/api/brand/favicon?v=' + encodeURIComponent(favicon) : link.dataset.berth;
+    document.querySelectorAll<HTMLLinkElement>('link[rel="icon"]').forEach((link) => {
+      if (!link.dataset.berth) link.dataset.berth = link.href;
+      link.href = favicon ? '/api/brand/favicon?v=' + encodeURIComponent(favicon) : link.dataset.berth;
+    });
   }, [favicon]);
 }
 
+// Logo is the Ratlan "Blocks" mark: four rounded tiles, one left open.
 export function Logo() {
   return (
     <div className="logo">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 15h18l-2.5 5h-13zM6.5 15V9h11v6M12 4v5" /></svg>
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="18" fill="#FF5B2E" /><g fill="#14141C"><rect x="15" y="15" width="15" height="15" rx="4" /><rect x="34" y="15" width="15" height="15" rx="4" /><rect x="15" y="34" width="15" height="15" rx="4" /></g><rect x="36.5" y="36.5" width="10" height="10" rx="2.5" fill="none" stroke="#14141C" strokeWidth="5" /></svg>
     </div>
   );
 }
 
 const avatarGradients = [
-  'linear-gradient(135deg,#8f6bff,#5b3df5)', 'linear-gradient(135deg,#ff7ab6,#e5488f)', 'linear-gradient(135deg,#34d3c4,#0ea5a4)',
+  'linear-gradient(135deg,#ff8a4c,#d93a12)', 'linear-gradient(135deg,#ff7ab6,#e5488f)', 'linear-gradient(135deg,#34d3c4,#0ea5a4)',
   'linear-gradient(135deg,#ffb15c,#f37a20)', 'linear-gradient(135deg,#6aa4ff,#2f6fec)', 'linear-gradient(135deg,#4cd68b,#0f9d58)',
 ];
 
