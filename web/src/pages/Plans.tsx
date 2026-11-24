@@ -28,11 +28,11 @@ export default function Plans() {
       <div className="card">
         {data.length === 0 ? <div className="empty"><p style={{ marginBottom: 14 }}>No plans yet.</p><button className="btn p" onClick={() => setEdit({ ...blank })}><Icon name="plus" />Create a plan</button></div> : (
           <div className="tscroll"><table>
-            <thead><tr><th>Plan</th><th>Sites</th><th>Disk</th><th>Domains per site</th><th>PHP per site</th><th>DNS domains</th><th>CPU · memory</th><th>Mail</th><th>Accounts</th><th></th></tr></thead>
+            <thead><tr><th>Plan</th><th>Sites</th><th>Disk</th><th>Domains<br />per site</th><th>PHP per site</th><th>DNS<br />domains</th><th>CPU · memory</th><th>Mail</th><th></th></tr></thead>
             <tbody>{data.map((p) => (
               <tr key={p.id} className="click" onClick={() => setEdit(p)}>
-                <td><b>{p.name}</b>{p.allow_shell && <> <Badge kind="a">shell</Badge></>}{p.no_sites && <> <Badge kind="v">mail only</Badge></>}</td>
-                {p.no_sites ? <td colSpan={6} className="muted">No websites (mail only)</td> : <>
+                <td><b>{p.name}</b><div className="dim" style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>{p.accounts} account{p.accounts === 1 ? '' : 's'}{p.allow_shell && <Badge kind="a">shell</Badge>}{p.no_sites && <Badge kind="v">mail only</Badge>}</div></td>
+                {p.no_sites ? <td colSpan={6} className="muted wrap">No websites (mail only)</td> : <>
                 <td>{limit(p.max_sites)}</td>
                 <td>{mbLabel(p.disk_mb)}</td>
                 <td>{limit(p.max_domains)}</td>
@@ -40,8 +40,7 @@ export default function Plans() {
                 <td>{limit(p.dns_zones)}</td>
                 <td className="muted">{p.cpu_percent || p.ram_mb ? `${p.cpu_percent ? p.cpu_percent + '%' : '–'} · ${p.ram_mb ? mbLabel(p.ram_mb) : '–'}` : '—'}</td>
                 </>}
-                <td className="muted">{p.mail_domains > 0 ? `${p.mail_domains} domain${p.mail_domains === 1 ? '' : 's'} · ${limit(p.mailboxes, ' mailboxes')} · ${mbLabel(p.mail_storage_mb)}` : '—'}</td>
-                <td>{p.accounts}</td>
+                <td className="muted wrap">{p.mail_domains > 0 ? `${p.mail_domains} domain${p.mail_domains === 1 ? '' : 's'} · ${limit(p.mailboxes, ' mailboxes')} · ${mbLabel(p.mail_storage_mb)}` : '—'}</td>
                 <td style={{ textAlign: 'right' }}>{p.accounts === 0 && <button className="btn s ghost" onClick={(e) => { e.stopPropagation(); remove(p); }}>Delete</button>}</td>
               </tr>
             ))}</tbody>

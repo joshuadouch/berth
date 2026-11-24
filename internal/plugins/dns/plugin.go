@@ -16,6 +16,7 @@ import (
 
 	"github.com/joshuadouch/berth/internal/model"
 	"github.com/joshuadouch/berth/internal/plugin"
+	"golang.org/x/net/publicsuffix"
 )
 
 // ID is the plugin's ID.
@@ -59,7 +60,7 @@ func (p *Plugin) Info() plugin.Info {
 	return plugin.Info{
 		ID:          ID,
 		Name:        "DNS hosting",
-		Description: "Host customers' domains on your own PowerDNS nameservers. Accounts it is on for get a DNS page to add zones and edit records, and new sites get their A and AAAA records automatically.",
+		Description: "Host customers' domains on your own PowerDNS nameservers. Accounts whose plan includes DNS domains (or that are picked here) get a DNS page to add zones and edit records, and new sites get their zone and A and AAAA records automatically.",
 		Version:     "1.0",
 		Icon:        "globe",
 		NavLabel:    "DNS",
@@ -76,6 +77,7 @@ func (p *Plugin) Info() plugin.Info {
 			{Key: "ipv4", Label: "This server's public IPv4", Type: plugin.Text, Section: "Site records", Placeholder: "203.0.113.10", Help: "Blank uses the address under Settings → Customers."},
 			{Key: "ipv6", Label: "This server's public IPv6", Type: plugin.Text, Section: "Site records", Placeholder: "2001:db8::10"},
 			{Key: "auto_records", Label: "Add records for new sites", Type: plugin.Bool, Section: "Site records", Default: true, Help: "When a site's domain is in one of its account's zones, point it at this server (unless the name already has a record)."},
+			{Key: "auto_zones", Label: "Add a zone for new sites", Type: plugin.Bool, Section: "Site records", Default: true, Help: "When a customer makes a site on a domain that isn't hosted here yet, add the domain as a zone (within their plan) so they only have to set the nameservers."},
 		},
 	}
 }
@@ -313,6 +315,20 @@ func ttlOf(c plugin.Config) int {
 	return 3600
 }
 
+// AllowAccount implements plugin.Gate: customers get the DNS page when their
+// plan includes DNS domains or they already have a zone here.
+func (p *Plugin) AllowAccount(ctx context.Context, account string) bool {
+	if pl, ok := p.host.Plan(ctx, account); ok && pl.DNSZones > 0 {
+		return true
+	}
+	for _, o := range p.owners(ctx) {
+		if o.Account == account {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *Plugin) createZone(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	u := plugin.User(r)
@@ -338,22 +354,37 @@ func (p *Plugin) createZone(w http.ResponseWriter, r *http.Request) {
 		plugin.WriteErr(w, 500, err.Error())
 		return
 	}
+	warn, err := p.addZone(ctx, c, account, zone, u.IsAdmin())
+	if err != nil {
+		code := 400
+		var pe *plugin.Error
+		if errors.As(err, &pe) {
+			code = pe.Code
+		}
+		plugin.WriteErr(w, code, err.Error())
+		return
+	}
+	p.host.Event(ctx, "info", fmt.Sprintf("%s added DNS zone %s", u.Username, zone))
+	plugin.WriteJSON(w, 200, map[string]any{"name": zone, "warning": warn})
+}
+
+// addZone creates a zone on the nameservers for an account, with records
+// for the account's sites already in it. adopt lets an admin take over a
+// zone made outside Berth. The warning is for a secondary that failed.
+func (p *Plugin) addZone(ctx context.Context, c plugin.Config, account, zone string, adopt bool) (string, error) {
 	ns, err := nameservers(c)
 	if err != nil {
-		plugin.WriteErr(w, 400, "the DNS plugin is not set up yet: "+err.Error())
-		return
+		return "", &plugin.Error{Code: 400, Msg: "the DNS plugin is not set up yet: " + err.Error()}
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	owners := p.owners(ctx)
 	if _, ok := owners[zone]; ok {
-		plugin.WriteErr(w, 409, zone+" is already hosted here")
-		return
+		return "", &plugin.Error{Code: 409, Msg: zone + " is already hosted here"}
 	}
 	for z, o := range owners {
 		if o.Account != account && (strings.HasSuffix(zone, "."+z) || strings.HasSuffix(z, "."+zone)) {
-			plugin.WriteErr(w, 409, zone+" overlaps a zone another account hosts here")
-			return
+			return "", &plugin.Error{Code: 409, Msg: zone + " overlaps a zone another account hosts here"}
 		}
 	}
 	if plan, ok := p.host.Plan(ctx, account); ok && plan.DNSZones > 0 {
@@ -364,21 +395,18 @@ func (p *Plugin) createZone(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if n >= plan.DNSZones {
-			plugin.WriteErr(w, 400, fmt.Sprintf("plan %s allows %d domain%s in DNS", plan.Name, plan.DNSZones, map[bool]string{true: "", false: "s"}[plan.DNSZones == 1]))
-			return
+			return "", &plugin.Error{Code: 400, Msg: fmt.Sprintf("plan %s allows %d domain%s in DNS", plan.Name, plan.DNSZones, map[bool]string{true: "", false: "s"}[plan.DNSZones == 1])}
 		}
 	}
 	pd := p.primary(c)
 	adopted := false
 	if _, err := pd.Zone(ctx, zone); err == nil {
-		if !u.IsAdmin() {
-			plugin.WriteErr(w, 409, zone+" is already hosted here")
-			return
+		if !adopt {
+			return "", &plugin.Error{Code: 409, Msg: zone + " is already hosted here"}
 		}
-		adopted = true // an admin takes over a zone made outside Berth
+		adopted = true
 	} else if !errors.Is(err, ErrNoZone) {
-		plugin.WriteErr(w, 502, err.Error())
-		return
+		return "", &plugin.Error{Code: 502, Msg: err.Error()}
 	}
 	if !adopted {
 		var nsRecs []Record
@@ -391,21 +419,17 @@ func (p *Plugin) createZone(w http.ResponseWriter, r *http.Request) {
 		}
 		sets = append(sets, p.siteSets(ctx, c, account, zone, nil)...)
 		if err := pd.CreateZone(ctx, Zone{Name: fqdn(zone), Kind: "Master", RRSets: sets, SOAEditAPI: "DEFAULT", APIRectify: true}); err != nil {
-			plugin.WriteErr(w, 502, err.Error())
-			return
+			return "", &plugin.Error{Code: 502, Msg: err.Error()}
 		}
 	}
 	owners[zone] = Owner{Account: account, Created: time.Now().UTC()}
 	if err := p.host.SetData(ctx, "zones", owners); err != nil {
-		plugin.WriteErr(w, 500, err.Error())
-		return
+		return "", &plugin.Error{Code: 500, Msg: err.Error()}
 	}
-	warn := ""
 	if err := p.addSecondary(ctx, c, zone); err != nil {
-		warn = "The zone is on the primary, but the secondary could not add it: " + err.Error()
+		return "The zone is on the primary, but the secondary could not add it: " + err.Error(), nil
 	}
-	p.host.Event(ctx, "info", fmt.Sprintf("%s added DNS zone %s", u.Username, zone))
-	plugin.WriteJSON(w, 200, map[string]any{"name": zone, "warning": warn})
+	return "", nil
 }
 
 // siteSets returns A/AAAA records for the account's sites inside a new zone,
@@ -807,7 +831,13 @@ func (p *Plugin) siteStatus(w http.ResponseWriter, r *http.Request) {
 // records in the account's zone, and names it loses have them removed.
 func (p *Plugin) SiteChanged(ctx context.Context, old, cur *model.Site, logf func(string, ...any)) {
 	c, err := p.config(ctx)
-	if err != nil || !c.Bool("auto_records") || c.Str("ipv4") == "" && c.Str("ipv6") == "" {
+	if err != nil {
+		return
+	}
+	if old == nil && cur != nil {
+		p.autoZone(ctx, c, cur, logf)
+	}
+	if !c.Bool("auto_records") || c.Str("ipv4") == "" && c.Str("ipv6") == "" {
 		return
 	}
 	owners := p.owners(ctx)
@@ -910,4 +940,37 @@ func (p *Plugin) SiteChanged(ctx context.Context, old, cur *model.Site, logf fun
 
 func only(set RRSet, ip string) bool {
 	return ip != "" && len(set.Records) == 1 && set.Records[0].Content == ip
+}
+
+// autoZone adds a new customer site's domain as a zone, so the customer
+// only has to set the nameservers at their registrar. It skips the admin's
+// own sites, sites on Halyard, domains already hosted here and accounts at
+// their plan's limit.
+func (p *Plugin) autoZone(ctx context.Context, c plugin.Config, s *model.Site, logf func(string, ...any)) {
+	if !c.Bool("auto_zones") || s.Halyard.Enabled || s.AccountID == "" || s.AccountID == p.host.AdminAccount(ctx) || !p.host.ActiveFor(ctx, s.AccountID) {
+		return
+	}
+	if zoneFor(p.owners(ctx), s.AccountID, s.Domain) != "" {
+		return
+	}
+	apex, err := publicsuffix.EffectiveTLDPlusOne(s.Domain)
+	if err != nil {
+		return
+	}
+	zone, err := CheckZoneName(apex)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	warn, err := p.addZone(ctx, c, s.AccountID, zone, false)
+	if err != nil {
+		logf("DNS: did not add %s as a zone: %v", zone, err)
+		return
+	}
+	if warn != "" {
+		logf("DNS: %s", warn)
+	}
+	logf("DNS: added %s; set its nameservers to %s at the registrar", zone, c.Str("nameservers"))
+	p.host.SiteEvent(ctx, "info", s.Name, "Added "+zone+" to DNS. Set its nameservers at the registrar to point it here.")
 }
