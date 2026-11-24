@@ -717,6 +717,8 @@ type Plan struct {
 	// AllowShell leaves exec(), system() and friends on in PHP.
 	AllowShell bool `json:"allow_shell"`
 	NoSFTP     bool `json:"no_sftp"`
+	// NoSites is for mail-only plans: the account cannot create websites.
+	NoSites bool `json:"no_sites"`
 	// Mail (the mailcow plugin), per account. MailDomains 0 = no mail.
 	MailDomains   int `json:"mail_domains"`
 	Mailboxes     int `json:"mailboxes"`       // across all of its mail domains
