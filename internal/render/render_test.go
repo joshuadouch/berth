@@ -178,11 +178,15 @@ func TestLocalTLS(t *testing.T) {
 	shop := out.Files[filepath.Join(p.NginxConf, "sites", "shop.conf")]
 	for _, want := range []string{
 		"listen 443 ssl http2;", "ssl_certificate " + p.CertFile("shop") + ";", "location ^~ /.well-known/acme-challenge/",
-		"return 301 https://shop.test$request_uri;", "server_name shop.test www.shop.test;",
+		"return 301 https://shop.test$request_uri;", "server_name www.shop.test;", "listen 80;",
+		"if ($berth_to_https) {",
 	} {
 		if !strings.Contains(shop, want) {
 			t.Errorf("shop.conf lacks %q", want)
 		}
+	}
+	if !strings.Contains(http, `"~^on:" 0;`) || !strings.Contains(http, `acme-challenge/" 0;`) {
+		t.Errorf("http.conf lacks the HTTPS redirect map:\n%s", http)
 	}
 	if strings.Contains(shop, "berth_from_proxy = 0") {
 		t.Error("a site Berth serves directly refuses direct visitors")

@@ -78,6 +78,11 @@ type HalyardLink struct {
 	// NoDNS leaves Cloudflare DNS alone for this site (DNS is managed by default).
 	NoDNS bool   `json:"no_dns"`
 	Error string `json:"error"`
+	// MovedAt is when the site moved off Halyard to be served by Berth.
+	MovedAt time.Time `json:"moved_at,omitzero"`
+	// RemoveAt is when the Halyard host of a moved site is deleted (zero:
+	// when someone presses Remove, because DNS still has to be changed).
+	RemoveAt time.Time `json:"remove_at,omitzero"`
 }
 
 // Certificate states.

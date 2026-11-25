@@ -97,6 +97,7 @@ func (e *Engine) Loop(ctx context.Context) {
 				go func() { defer uptimeBusy.done(); e.runUptime(ctx) }()
 			}
 			e.runAutoUpdates(ctx, now)
+			e.removeMovedHalyard(ctx, now)
 			if now.Sub(lastCerts) >= 10*time.Minute && certBusy.try() {
 				lastCerts = now
 				go func() { defer certBusy.done(); e.renewCerts(ctx) }()

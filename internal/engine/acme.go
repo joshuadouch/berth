@@ -23,6 +23,7 @@ import (
 	"golang.org/x/crypto/acme"
 
 	"github.com/joshuadouch/berth/internal/model"
+	"github.com/joshuadouch/berth/internal/plugin"
 )
 
 // Let's Encrypt's directories.
@@ -128,6 +129,28 @@ func (e *Engine) writeChallenge(token, body string) error {
 	return os.Chmod(p, 0o644)
 }
 
+// dnsChallenger returns a plugin that can answer a DNS-01 check for name.
+func (e *Engine) dnsChallenger(ctx context.Context, account, name string) plugin.DNSChallenger {
+	if e.Challenges == nil {
+		return nil
+	}
+	return e.Challenges.DNSChallenger(ctx, account, name)
+}
+
+// preflightClient follows redirects the way Let's Encrypt does, so a site
+// behind a proxy that sends plain HTTP to HTTPS still passes.
+func (e *Engine) preflightClient() *http.Client {
+	if e.HTTP != nil {
+		return e.HTTP
+	}
+	return &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("too many redirects")
+		}
+		return nil
+	}}
+}
+
 // preflight checks that every name reaches this server over plain HTTP
 // before asking Let's Encrypt, which limits failed attempts.
 func (e *Engine) preflight(ctx context.Context, names []string) error {
@@ -145,7 +168,7 @@ func (e *Engine) preflight(ctx context.Context, names []string) error {
 	var bad []string
 	for _, n := range names {
 		req, _ := http.NewRequestWithContext(ctx, "GET", "http://"+n+"/.well-known/acme-challenge/"+token, nil)
-		res, err := e.httpClient(15 * time.Second).Do(req)
+		res, err := e.preflightClient().Do(req)
 		if err != nil {
 			bad = append(bad, n)
 			continue
@@ -171,9 +194,22 @@ func (e *Engine) IssueCert(ctx context.Context, s model.Site, logf Logf) (model.
 		logf("Dry run: not asking Let's Encrypt for %s", strings.Join(names, ", "))
 		return model.SiteTLS{}, errors.New("dry run")
 	}
-	logf("Checking that %s reach this server", strings.Join(names, ", "))
-	if err := e.preflight(ctx, names); err != nil {
-		return model.SiteTLS{}, err
+	// Names a plugin can answer for through DNS are checked with a TXT
+	// record, so they work before (or without) pointing at this server.
+	solvers := map[string]plugin.DNSChallenger{}
+	var httpNames []string
+	for _, n := range names {
+		if sv := e.dnsChallenger(ctx, s.AccountID, n); sv != nil {
+			solvers[n] = sv
+		} else {
+			httpNames = append(httpNames, n)
+		}
+	}
+	if len(httpNames) > 0 {
+		logf("Checking that %s reach this server", strings.Join(httpNames, ", "))
+		if err := e.preflight(ctx, httpNames); err != nil {
+			return model.SiteTLS{}, err
+		}
 	}
 	c, err := e.acmeClient(ctx)
 	if err != nil {
@@ -193,6 +229,33 @@ func (e *Engine) IssueCert(ctx context.Context, s model.Site, logf Logf) (model.
 			continue
 		}
 		var chal *acme.Challenge
+		if sv := solvers[z.Identifier.Value]; sv != nil {
+			for _, ch := range z.Challenges {
+				if ch.Type == "dns-01" {
+					chal = ch
+				}
+			}
+			if chal == nil {
+				return model.SiteTLS{}, fmt.Errorf("Let's Encrypt offered no DNS check for %s", z.Identifier.Value)
+			}
+			val, err := c.DNS01ChallengeRecord(chal.Token)
+			if err != nil {
+				return model.SiteTLS{}, err
+			}
+			logf("Adding a DNS record to prove control of %s", z.Identifier.Value)
+			cleanup, err := sv.PresentTXT(ctx, s.AccountID, "_acme-challenge."+z.Identifier.Value, val)
+			if err != nil {
+				return model.SiteTLS{}, fmt.Errorf("%s: %w", z.Identifier.Value, err)
+			}
+			defer cleanup()
+			if _, err := c.Accept(ctx, chal); err != nil {
+				return model.SiteTLS{}, explainACME(err)
+			}
+			if _, err := c.WaitAuthorization(ctx, z.URI); err != nil {
+				return model.SiteTLS{}, fmt.Errorf("%s: %w", z.Identifier.Value, explainACME(err))
+			}
+			continue
+		}
 		for _, ch := range z.Challenges {
 			if ch.Type == "http-01" {
 				chal = ch

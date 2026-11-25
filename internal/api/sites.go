@@ -81,7 +81,7 @@ func (s *Server) getSite(w http.ResponseWriter, r *http.Request) {
 		"site": site, "usage": s.Engine.SiteUsage()[site.Name], "backups": backups, "jobs": jobs, "events": events,
 		"dir": s.Engine.Paths().SiteDir(site.Name), "user": site.User(), "socket": s.Cfg.Socket(site.Name),
 		"sftp_available": s.Cfg.SFTP.Enabled, "uptime": uptime,
-		"cloudflare": admin && s.Plugins.ActiveFor(r.Context(), cloudflare.ID, site.AccountID),
+		"cloudflare": s.Plugins.ActiveFor(r.Context(), cloudflare.ID, site.AccountID),
 		"halyard":    admin && s.Engine.HalyardFor(r.Context(), site.AccountID),
 		"dns":        s.Plugins.ActiveFor(r.Context(), dns.ID, site.AccountID) && !site.Halyard.Enabled,
 		"vulns":      s.Engine.VulnCounts(r.Context(), []model.Site{site})[site.Name],

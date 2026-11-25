@@ -1,5 +1,5 @@
-// Package cloudflare is the Cloudflare plugin: cache purges for sites and
-// Cloudflare Access sign-in for the panel. It is for the server's admins only.
+// Package cloudflare is the Cloudflare plugin: sites' DNS records, DNS-01
+// certificates, cache purges and Cloudflare Access sign-in for the panel.
 package cloudflare
 
 import (
@@ -112,6 +112,21 @@ func (c *Client) Purge(ctx context.Context, hostnames []string) (int, error) {
 		n += len(hosts)
 	}
 	return n, nil
+}
+
+// ZoneNames lists the zones the token sees.
+func (c *Client) ZoneNames(ctx context.Context) ([]string, error) {
+	var zones []struct {
+		Name string `json:"name"`
+	}
+	if err := c.call(ctx, "GET", "/zones?per_page=50", nil, &zones); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(zones))
+	for _, z := range zones {
+		names = append(names, z.Name)
+	}
+	return names, nil
 }
 
 // Verify checks that the token works and lists the zones it sees.
