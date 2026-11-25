@@ -825,15 +825,16 @@ type Event struct {
 
 // Job is a long-running task (installing WordPress, backups, restores).
 type Job struct {
-	ID       int64     `json:"id"`
-	Site     string    `json:"site"`
-	Kind     string    `json:"kind"`
-	Title    string    `json:"title"`
-	Status   string    `json:"status"` // running, ok, failed
-	Log      string    `json:"log"`
-	Started  time.Time `json:"started"`
-	Finished time.Time `json:"finished"`
-	Error    string    `json:"error"`
+	ID        int64     `json:"id"`
+	Site      string    `json:"site"`
+	AccountID string    `json:"-"` // the site's account when the job started
+	Kind      string    `json:"kind"`
+	Title     string    `json:"title"`
+	Status    string    `json:"status"` // running, ok, failed
+	Log       string    `json:"log"`
+	Started   time.Time `json:"started"`
+	Finished  time.Time `json:"finished"`
+	Error     string    `json:"error"`
 }
 
 // Backup is a backup archive on disk.

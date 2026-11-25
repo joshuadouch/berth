@@ -220,7 +220,7 @@ func (e *Engine) BackupFile(ctx context.Context, site, file, p string, w io.Writ
 // RestoreFiles puts chosen files and folders from a backup back into the
 // site, overwriting what is there. Nothing else changes.
 func (e *Engine) RestoreFiles(ctx context.Context, s model.Site, file string, paths []string, logf Logf) error {
-	unlock := e.lockSite(s.Name)
+	unlock := e.waitSite(s.Name, logf)
 	defer unlock()
 	ix, archive, err := e.backupIndex(ctx, s.Name, file)
 	if err != nil {

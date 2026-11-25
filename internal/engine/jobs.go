@@ -8,7 +8,13 @@ import (
 
 // StartJob runs fn in the background and records its log. It returns the job ID.
 func (e *Engine) StartJob(site, kind, title string, fn func(ctx context.Context, logf Logf) error) (int64, error) {
-	id, err := e.Store.StartJob(context.Background(), site, kind, title)
+	account := ""
+	if site != "" {
+		if s, err := e.Store.Site(context.Background(), site); err == nil {
+			account = s.AccountID
+		}
+	}
+	id, err := e.Store.StartJob(context.Background(), site, account, kind, title)
 	if err != nil {
 		return 0, err
 	}

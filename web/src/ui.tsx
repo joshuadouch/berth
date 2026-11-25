@@ -265,27 +265,37 @@ export function Copyable({ value, mono = true }: { value: string; mono?: boolean
 // JobView follows a background job until it ends.
 export function JobView({ id, onDone }: { id: number; onDone?: (j: Job) => void }) {
   const [job, setJob] = useState<Job | null>(null);
+  const [lost, setLost] = useState<unknown>(null);
   const box = useRef<HTMLDivElement>(null);
   const done = useRef(false);
   useEffect(() => {
     let alive = true;
     let t = 0;
+    let fails = 0;
     const tick = () => get<Job>('/jobs/' + id).then((j) => {
       if (!alive) return;
+      fails = 0;
+      setLost(null);
       setJob(j);
       if (j.status === 'running') t = window.setTimeout(tick, 1000);
       else if (!done.current) { done.current = true; onDone?.(j); }
-    }).catch(() => { if (alive) t = window.setTimeout(tick, 2000); });
+    }).catch((e) => {
+      if (!alive) return;
+      // Keep trying, but say so rather than looking stuck.
+      if (++fails >= 3) setLost(e);
+      t = window.setTimeout(tick, 2000);
+    });
     tick();
     return () => { alive = false; window.clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
   useEffect(() => { if (box.current) box.current.scrollTop = box.current.scrollHeight; }, [job?.log]);
-  if (!job) return <Loading />;
+  if (!job) return lost ? <ErrorBox error={lost} /> : <Loading />;
   return (
     <div>
       <div className="row" style={{ alignItems: 'center', gap: 10, marginBottom: 10 }}><b>{job.title}</b><JobBadge status={job.status} /></div>
       <div ref={box} className="code joblog mono">{job.log || 'Starting…'}</div>
+      {lost ? <div className="err" style={{ marginTop: 10 }}>Lost track of this job ({lost instanceof Error ? lost.message : String(lost)}). Still retrying; the Activity page shows how it ended.</div> : null}
     </div>
   );
 }

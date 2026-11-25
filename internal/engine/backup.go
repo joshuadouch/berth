@@ -123,7 +123,7 @@ func backupTime(name string, fallback time.Time) time.Time {
 
 // Backup takes a backup now.
 func (e *Engine) Backup(ctx context.Context, s model.Site, logf Logf) (model.Backup, error) {
-	unlock := e.lockSite(s.Name)
+	unlock := e.waitSite(s.Name, logf)
 	defer unlock()
 	return e.backup(ctx, s, "", logf)
 }
@@ -350,7 +350,7 @@ type RestoreOptions struct {
 
 // Restore replaces a site's files and database with a backup.
 func (e *Engine) Restore(ctx context.Context, s model.Site, file string, o RestoreOptions, logf Logf) error {
-	unlock := e.lockSite(s.Name)
+	unlock := e.waitSite(s.Name, logf)
 	defer unlock()
 	switch o.What {
 	case "":
