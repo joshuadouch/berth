@@ -172,7 +172,10 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err)
 		return
 	}
-	if !s.mayOpenSiteName(r, j.Site) {
+	// The job's own account counts too: once a delete job removes the site,
+	// its owner must still be able to watch the job finish.
+	u := currentUser(r)
+	if !s.mayOpenSiteName(r, j.Site) && (j.AccountID == "" || j.AccountID != u.AccountID) {
 		writeErr(w, 404, "not found")
 		return
 	}

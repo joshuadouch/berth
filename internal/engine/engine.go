@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -96,12 +97,77 @@ func (e *Engine) certDir() string {
 	return e.Cfg.Path("certs")
 }
 
+// siteLock serialises work on one site and remembers what holds it, so work
+// that has to wait can say what it is waiting for.
+type siteLock struct {
+	mu     sync.Mutex
+	holder atomic.Pointer[string]
+}
+
 // lockSite serialises work on one site.
 func (e *Engine) lockSite(name string) func() {
-	m, _ := e.siteMu.LoadOrStore(name, &sync.Mutex{})
-	mu := m.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
+	return e.waitSite(name, nil)
+}
+
+// waitSite is lockSite for jobs: when other work holds the site, it logs what
+// it is waiting for instead of sitting silent.
+func (e *Engine) waitSite(name string, logf Logf) func() {
+	m, _ := e.siteMu.LoadOrStore(name, &siteLock{})
+	l := m.(*siteLock)
+	if !l.mu.TryLock() {
+		if logf != nil {
+			what := "other work"
+			if h := l.holder.Load(); h != nil {
+				what = *h
+			}
+			logf("Waiting for %s on this site to finish", what)
+		}
+		l.mu.Lock()
+	}
+	h := lockHolder()
+	l.holder.Store(&h)
+	return func() {
+		l.holder.Store(nil)
+		l.mu.Unlock()
+	}
+}
+
+// lockHolder names the work that took a site lock, such as "a backup", for
+// the waiting message.
+func lockHolder() string {
+	pcs := make([]uintptr, 4)
+	n := runtime.Callers(3, pcs)
+	frames := runtime.CallersFrames(pcs[:n])
+	for {
+		f, more := frames.Next()
+		fn := f.Function
+		// engine.(*Engine).DeleteSite.func1 -> DeleteSite
+		for {
+			i := strings.LastIndex(fn, ".")
+			if i < 0 || !strings.HasPrefix(fn[i+1:], "func") {
+				break
+			}
+			fn = fn[:i]
+		}
+		fn = fn[strings.LastIndex(fn, ".")+1:]
+		if fn != "lockSite" && fn != "waitSite" && fn != "" {
+			if label, ok := lockLabels[fn]; ok {
+				return label
+			}
+			return fn
+		}
+		if !more {
+			return "other work"
+		}
+	}
+}
+
+var lockLabels = map[string]string{
+	"Backup": "a backup", "Restore": "a restore", "RestoreFiles": "a file restore",
+	"CreateSite": "site creation", "RetryProvision": "site creation", "DeleteSite": "a delete",
+	"UpdateSite": "a settings change", "EnsureCert": "a certificate request",
+	"LinkHalyard": "a Halyard change", "UnlinkHalyard": "a Halyard change",
+	"SetDBPassword": "a database password change", "ApplyPlanLimits": "plan limits",
 }
 
 // InstalledPHP lists PHP versions whose FPM binary exists.

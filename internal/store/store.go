@@ -61,6 +61,13 @@ func Open(path string) (*Store, error) {
 	}); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	// A job remembers its site's account, so the account can still follow
+	// it after the site is gone (deleting a site removes its record).
+	if err := addColumns(db, "jobs", map[string]string{
+		"account_id": "TEXT NOT NULL DEFAULT ''",
+	}); err != nil {
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	// Jobs that were running when Berth stopped will never finish.
 	_, _ = db.Exec(`UPDATE jobs SET status='failed', error='Berth restarted while this was running', finished=? WHERE status='running'`, now())
 	return &Store{db: db}, nil
@@ -285,8 +292,8 @@ func marks(n int) string { return strings.TrimSuffix(strings.Repeat("?,", n), ",
 // Jobs ------------------------------------------------------------------------
 
 // StartJob records a new running job.
-func (s *Store) StartJob(ctx context.Context, site, kind, title string) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO jobs(site,kind,title,status,started) VALUES(?,?,?,?,?)`, site, kind, title, "running", now())
+func (s *Store) StartJob(ctx context.Context, site, account, kind, title string) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `INSERT INTO jobs(site,account_id,kind,title,status,started) VALUES(?,?,?,?,?,?)`, site, account, kind, title, "running", now())
 	if err != nil {
 		return 0, err
 	}
@@ -311,12 +318,12 @@ func (s *Store) FinishJob(ctx context.Context, id int64, jobErr error) {
 func scanJob(sc interface{ Scan(...any) error }) (model.Job, error) {
 	var j model.Job
 	var st, fin string
-	err := sc.Scan(&j.ID, &j.Site, &j.Kind, &j.Title, &j.Status, &j.Log, &st, &fin, &j.Error)
+	err := sc.Scan(&j.ID, &j.Site, &j.AccountID, &j.Kind, &j.Title, &j.Status, &j.Log, &st, &fin, &j.Error)
 	j.Started, j.Finished = parseTime(st), parseTime(fin)
 	return j, err
 }
 
-const jobCols = `id,site,kind,title,status,log,started,finished,error`
+const jobCols = `id,site,account_id,kind,title,status,log,started,finished,error`
 
 // Job loads one job.
 func (s *Store) Job(ctx context.Context, id int64) (model.Job, error) {

@@ -146,7 +146,7 @@ func (e *Engine) CreateSite(ctx context.Context, req CreateRequest, author strin
 	}
 	e.Store.AddEvent(ctx, "info", "site", s.Name, fmt.Sprintf("%s created %s site %s", author, s.Type.Label(), s.Domain))
 	id, err := e.StartJob(s.Name, "create", "Create "+s.Domain, func(ctx context.Context, logf Logf) error {
-		unlock := e.lockSite(s.Name)
+		unlock := e.waitSite(s.Name, logf)
 		defer unlock()
 		err := e.provision(ctx, s, adminPW, logf)
 		cur, gerr := e.Store.Site(ctx, s.Name)
@@ -234,7 +234,7 @@ func (e *Engine) RetryProvision(ctx context.Context, name string) (int64, string
 		adminPW = Password(20)
 	}
 	id, err := e.StartJob(s.Name, "create", "Retry "+s.Domain, func(ctx context.Context, logf Logf) error {
-		unlock := e.lockSite(s.Name)
+		unlock := e.waitSite(s.Name, logf)
 		defer unlock()
 		if s.Type == model.TypeWordPress && !e.Cfg.DryRun {
 			// Start WordPress from scratch: the earlier attempt may have stopped half way.
@@ -348,7 +348,7 @@ func (e *Engine) DeleteSite(ctx context.Context, name string, finalBackup bool, 
 	}
 	e.Store.AddEvent(ctx, "warn", "site", s.Name, author+" deleted "+s.Domain)
 	return e.StartJob(s.Name, "delete", "Delete "+s.Domain, func(ctx context.Context, logf Logf) error {
-		unlock := e.lockSite(s.Name)
+		unlock := e.waitSite(s.Name, logf)
 		defer unlock()
 		if finalBackup && prev != model.StatusProvisioning {
 			logf("Taking a final backup")
