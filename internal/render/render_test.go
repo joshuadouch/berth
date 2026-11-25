@@ -147,7 +147,9 @@ func TestNginxAccepts(t *testing.T) {
 	}
 	conf := filepath.Join(dir, "nginx.conf")
 	main := "pid " + filepath.Join(dir, "nginx.pid") + ";\nerror_log stderr;\nevents {}\nhttp {\n" +
-		"  access_log off;\n  client_body_temp_path " + dir + ";\n  proxy_temp_path " + dir + ";\n  fastcgi_temp_path " + dir + ";\n" +
+		"  access_log off;\n" +
+		// Debian's nginx.conf sets these at http level; Berth must not repeat them there.
+		"  ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3;\n  ssl_prefer_server_ciphers on;\n  client_body_temp_path " + dir + ";\n  proxy_temp_path " + dir + ";\n  fastcgi_temp_path " + dir + ";\n" +
 		"  uwsgi_temp_path " + dir + ";\n  scgi_temp_path " + dir + ";\n" +
 		"  include " + filepath.Join(p.NginxConf, "http.conf") + ";\n  include " + filepath.Join(p.NginxConf, "sites", "*.conf") + ";\n}\n"
 	if err := os.WriteFile(conf, []byte(main), 0o644); err != nil {
