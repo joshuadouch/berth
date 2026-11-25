@@ -31,7 +31,7 @@ export interface TrafficHour { hour: number; requests: number; bytes: number; s2
 export interface TopEntry { key: string; requests: number; bytes: number; ms: number }
 export interface Metric { time: number; cpu: number; mem: number; disk: number; db: number }
 export interface Usage { files: number; db: number }
-export interface Backup { site: string; file: string; size: number; time: string; local: boolean; remote: boolean }
+export interface Backup { site: string; file: string; size: number; time: string; local: boolean; remote: boolean; gone?: boolean }
 export interface FileEntry { name: string; dir: boolean; link?: string; size: number; mode: string; mtime: string }
 export interface SiteRow extends Site { usage: Usage; last_backup: Backup | null; uptime: UptimeState | null; vulns: number }
 export interface Job { id: number; site: string; kind: string; title: string; status: 'running' | 'ok' | 'failed'; log: string; started: string; finished: string; error: string }

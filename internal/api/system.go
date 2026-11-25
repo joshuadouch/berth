@@ -195,15 +195,25 @@ func (s *Server) listBackups(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	if !currentUser(r).IsAdmin() {
-		sites, _ := s.visibleSites(r)
-		mine := map[string]bool{}
-		for _, n := range siteNames(sites) {
-			mine[n] = true
+	// Mark backups of deleted sites, and keep a customer to their own
+	// account's, deleted sites included.
+	type owner struct {
+		account  string
+		live, ok bool
+	}
+	owners := map[string]owner{}
+	for i, x := range b {
+		o, seen := owners[x.Site]
+		if !seen {
+			o.account, o.live, o.ok = s.Engine.BackupOwner(r.Context(), x.Site)
+			owners[x.Site] = o
 		}
+		b[i].Gone = !o.live
+	}
+	if u := currentUser(r); !u.IsAdmin() {
 		out := b[:0:0]
 		for _, x := range b {
-			if mine[x.Site] {
+			if o := owners[x.Site]; o.ok && u.AccountID != "" && o.account == u.AccountID {
 				out = append(out, x)
 			}
 		}

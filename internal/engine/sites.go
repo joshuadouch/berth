@@ -389,6 +389,8 @@ func (e *Engine) DeleteSite(ctx context.Context, name string, finalBackup bool, 
 			logf("Could not remove the user: %v", err)
 		}
 		e.Store.DeleteSiteStats(ctx, s.Name)
+		// Its backups outlive it; remember whose they are.
+		_ = e.Store.SetKV(ctx, goneKey(s.Name), GoneSite{AccountID: s.AccountID, Domain: s.Domain, Deleted: time.Now().UTC()})
 		return e.Store.DeleteSite(ctx, s.Name)
 	})
 }
@@ -464,4 +466,28 @@ func (e *Engine) MoveSite(ctx context.Context, id, accountID string) (model.Site
 		e.siteChanged(ctx, &old, &s, nil)
 	}
 	return s, nil
+}
+
+// GoneSite remembers a deleted site, so its account can still reach the
+// backups it left behind.
+type GoneSite struct {
+	AccountID string    `json:"account_id"`
+	Domain    string    `json:"domain"`
+	Deleted   time.Time `json:"deleted"`
+}
+
+func goneKey(name string) string { return "gone-site:" + name }
+
+// BackupOwner returns the account whose backups a site name holds: the live
+// site's account, or the account of a deleted site of that name. ok is false
+// when neither is known.
+func (e *Engine) BackupOwner(ctx context.Context, name string) (account string, live, ok bool) {
+	if s, err := e.Store.Site(ctx, name); err == nil {
+		return s.AccountID, true, true
+	}
+	var g GoneSite
+	if err := e.Store.GetKV(ctx, goneKey(name), &g); err != nil || g.AccountID == "" {
+		return "", false, false
+	}
+	return g.AccountID, false, true
 }

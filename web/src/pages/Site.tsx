@@ -422,7 +422,7 @@ export function BackupTable({ backups, site, reload, startJob, showSite }: { bac
         <thead><tr>{showSite && <th>Site</th>}<th>Backup</th><th className="hide-sm">Size</th><th>Taken</th><th className="hide-sm">Where</th><th></th></tr></thead>
         <tbody>{backups.map((b) => (
           <tr key={b.site + b.file}>
-            {showSite && <td><Link to={'/sites/' + b.site + '?tab=backups'}>{b.site}</Link></td>}
+            {showSite && <td>{b.gone ? <span className="muted" title="This site was deleted; its backups stay until you delete them">{b.site} <Badge kind="n">deleted</Badge></span> : <Link to={'/sites/' + b.site + '?tab=backups'}>{b.site}</Link>}</td>}
             <td className="mono" style={{ fontSize: 12 }}>{b.file}{b.file.endsWith('-final.tar.gz') && <> <Badge kind="w">final</Badge></>}</td>
             <td className="muted hide-sm">{bytes(b.size)}</td>
             <td className="muted">{fmtDate(b.time)}</td>

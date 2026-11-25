@@ -845,6 +845,8 @@ type Backup struct {
 	Time   time.Time `json:"time"`
 	Local  bool      `json:"local"`  // in the backup folder
 	Remote bool      `json:"remote"` // in S3
+	// Gone marks backups of a site that has since been deleted.
+	Gone bool `json:"gone,omitempty"`
 }
 
 func (c *S3Settings) normalize() error {
