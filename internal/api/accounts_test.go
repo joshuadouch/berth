@@ -146,11 +146,12 @@ func TestPerAccountPlugins(t *testing.T) {
 	if code, out := admin.do("PUT", "/api/plugins/halyard", map[string]any{"enabled": true, "config": map[string]any{}}, true); code != 200 {
 		t.Fatalf("enable halyard: %d %v", code, out)
 	}
-	// Halyard and Cloudflare are never for customers.
-	for _, id := range []string{"halyard", "cloudflare"} {
-		if code, _ := admin.do("PUT", "/api/plugins/"+id+"/accounts", map[string]any{"accounts": []string{acct}}, true); code != 400 {
-			t.Errorf("%s for a customer account: %d", id, code)
-		}
+	// Halyard is never for customers; Cloudflare is (with their own token).
+	if code, _ := admin.do("PUT", "/api/plugins/halyard/accounts", map[string]any{"accounts": []string{acct}}, true); code != 400 {
+		t.Errorf("halyard for a customer account: %d", code)
+	}
+	if code, _ := admin.do("PUT", "/api/plugins/cloudflare/accounts", map[string]any{"accounts": []string{acct}}, true); code != 200 {
+		t.Errorf("cloudflare for a customer account: %d", code)
 	}
 	if code, out := admin.do("PUT", "/api/plugins/halyard/accounts", map[string]any{"accounts": []string{own}}, true); code != 200 {
 		t.Fatalf("halyard for own account: %d %v", code, out)
@@ -184,5 +185,28 @@ func TestPerAccountPlugins(t *testing.T) {
 	}
 	if _, out := cust.do("GET", "/api/me", nil, true); len(out["plugins"].([]any)) != 0 {
 		t.Errorf("customer plugins: %v", out["plugins"])
+	}
+
+	// Once Cloudflare is on, customers get its page and see only their sites.
+	if code, out := admin.do("PUT", "/api/plugins/cloudflare", map[string]any{"enabled": true, "config": map[string]any{"dns": true}}, true); code != 200 {
+		t.Fatalf("enable cloudflare: %d %v", code, out)
+	}
+	if _, out := cust.do("GET", "/api/me", nil, true); len(out["plugins"].([]any)) != 1 {
+		t.Errorf("customer plugins with cloudflare on: %v", out["plugins"])
+	}
+	code, ov := cust.do("GET", "/api/p/cloudflare/overview", nil, true)
+	if code != 200 || ov["own_token"] != false || ov["server_token"] != false {
+		t.Fatalf("customer cloudflare overview: %d %v", code, ov)
+	}
+	for _, s := range ov["sites"].([]any) {
+		if d := s.(map[string]any)["domain"]; d != "theirs.test" {
+			t.Errorf("customer sees %v", d)
+		}
+	}
+	if code, _ := cust.do("GET", "/api/p/cloudflare/sites/minetest/dns", nil, true); code != 404 {
+		t.Errorf("customer read another account's site DNS: %d", code)
+	}
+	if code, _ := cust.do("POST", "/api/p/cloudflare/sites/theirstest/purge", nil, true); code != 400 {
+		t.Errorf("purge without a token: %d", code)
 	}
 }

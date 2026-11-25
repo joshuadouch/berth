@@ -521,6 +521,30 @@ func (s *Server) halyardUnlink(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, site)
 }
 
+// halyardMove moves a site off Halyard so Berth serves it directly.
+func (s *Server) halyardMove(w http.ResponseWriter, r *http.Request) {
+	site, ok := s.site(w, r)
+	if !ok {
+		return
+	}
+	id, err := s.Engine.MoveOffHalyard(r.Context(), site.Name, currentUser(r).Username)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 202, map[string]any{"job_id": id})
+}
+
+// halyardMoveAll moves every site off Halyard.
+func (s *Server) halyardMoveAll(w http.ResponseWriter, r *http.Request) {
+	id, err := s.Engine.MoveAllOffHalyard(r.Context(), currentUser(r).Username)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 202, map[string]any{"job_id": id})
+}
+
 func (s *Server) halyardPool(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Address string `json:"address"`

@@ -3,7 +3,7 @@ export type SiteType = 'wordpress' | 'php_db' | 'php';
 export interface Database { name: string; user: string; password?: string }
 export interface WordPress { title: string; admin_user: string; admin_email: string; locale: string }
 export interface SFTP { enabled: boolean; keys: string[] | null; password_set: boolean }
-export interface HalyardLink { enabled: boolean; host_id: string; vip_id: string; exposure: string; cert_id: string; no_dns: boolean; error: string }
+export interface HalyardLink { enabled: boolean; host_id: string; vip_id: string; exposure: string; cert_id: string; no_dns: boolean; error: string; moved_at?: string; remove_at?: string }
 export interface Site {
   id: string; name: string; type: SiteType; domain: string; aliases: string[] | null; php_version: string; doc_root: string;
   redirect_aliases: boolean; front_controller: boolean; https: boolean; tls_mode: '' | 'local'; tls: SiteTLS; enabled: boolean; upload_mb: number; memory_mb: number;

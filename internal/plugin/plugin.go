@@ -122,6 +122,25 @@ type Provisioner interface {
 	Provision(ctx context.Context, a model.Account, body json.RawMessage) (any, error)
 }
 
+// DNSChallenger is implemented by plugins that can prove control of a
+// hostname to Let's Encrypt with a DNS TXT record (DNS-01), so a site gets
+// its certificate before its DNS points at this server.
+type DNSChallenger interface {
+	// CanChallenge reports whether the plugin can answer for name on the
+	// account's behalf (it is on for the account and the zone is reachable).
+	CanChallenge(ctx context.Context, account, name string) bool
+	// PresentTXT publishes value at fqdn (e.g. _acme-challenge.example.com),
+	// waits until it can be seen, and returns a function that removes it.
+	PresentTXT(ctx context.Context, account, fqdn, value string) (cleanup func(), err error)
+}
+
+// DNSKeeper is implemented by plugins that keep sites' DNS records.
+type DNSKeeper interface {
+	// PointsHere reports whether every name of the site has a record the
+	// plugin keeps pointing at this server.
+	PointsHere(ctx context.Context, s model.Site) bool
+}
+
 // Config holds a plugin's settings.
 type Config map[string]any
 
@@ -192,6 +211,21 @@ func (h *Host) Config(ctx context.Context) (Config, error) {
 // ActiveFor reports whether the plugin is switched on for an account.
 func (h *Host) ActiveFor(ctx context.Context, account string) bool {
 	return h.reg.ActiveFor(ctx, h.ID, account)
+}
+
+// Chosen reports whether an admin picked the account for the plugin on the
+// Plugins page (as opposed to the plugin being on for it by its own rule).
+func (h *Host) Chosen(ctx context.Context, account string) bool {
+	st, err := h.reg.state(ctx, h.ID)
+	if err != nil || !st.Enabled {
+		return false
+	}
+	for _, a := range st.Accounts {
+		if a == account {
+			return true
+		}
+	}
+	return false
 }
 
 // Site loads one of Berth's sites.
@@ -587,6 +621,30 @@ func (r *Registry) SiteChanged(ctx context.Context, old, cur *model.Site, logf f
 			w.SiteChanged(ctx, old, cur, logf)
 		}
 	}
+}
+
+// DNSChallenger returns the first enabled plugin that can answer DNS-01
+// challenges for a hostname of an account, or nil.
+func (r *Registry) DNSChallenger(ctx context.Context, account, name string) DNSChallenger {
+	for _, p := range r.plugins {
+		c, ok := p.(DNSChallenger)
+		if ok && r.Enabled(ctx, p.Info().ID) && c.CanChallenge(ctx, account, name) {
+			return c
+		}
+	}
+	return nil
+}
+
+// PointsHere reports whether an enabled plugin keeps every name of a site
+// pointing at this server.
+func (r *Registry) PointsHere(ctx context.Context, s model.Site) bool {
+	for _, p := range r.plugins {
+		k, ok := p.(DNSKeeper)
+		if ok && r.Enabled(ctx, p.Info().ID) && k.PointsHere(ctx, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // Info returns a plugin's description.

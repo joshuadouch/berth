@@ -19,6 +19,7 @@ import (
 
 	"github.com/joshuadouch/berth/internal/config"
 	"github.com/joshuadouch/berth/internal/model"
+	"github.com/joshuadouch/berth/internal/plugin"
 	"github.com/joshuadouch/berth/internal/render"
 	"github.com/joshuadouch/berth/internal/store"
 	"github.com/joshuadouch/berth/internal/sys"
@@ -33,6 +34,12 @@ type PluginSwitch interface {
 // deleted. old is nil for a new site and cur is nil for a deleted one.
 type SiteHooks interface {
 	SiteChanged(ctx context.Context, old, cur *model.Site, logf func(string, ...any))
+}
+
+// ChallengeFinder finds a plugin that can prove control of a hostname to
+// Let's Encrypt through DNS.
+type ChallengeFinder interface {
+	DNSChallenger(ctx context.Context, account, name string) plugin.DNSChallenger
 }
 
 // Engine owns every change to the machine.
@@ -55,6 +62,8 @@ type Engine struct {
 	Plugins PluginSwitch
 	// Hooks hears about site changes (nil: nobody).
 	Hooks SiteHooks
+	// Challenges finds DNS-01 solvers for certificates (nil: HTTP-01 only).
+	Challenges ChallengeFinder
 	// ACMEDirectory, ACMEHTTP and SkipACMEPreflight point certificate
 	// requests at a test CA.
 	ACMEDirectory     string

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { APIToken, del, exposureLabel, get, HalyardInfo, post, put, putFile, Settings as S, vipLabel } from '../api';
-import { Badge, BrandMark, Chips, Copyable, ErrorBox, Field, Loading, Toggle, useLoad, useToast } from '../ui';
+import { APIToken, del, exposureLabel, get, HalyardInfo, post, put, putFile, Settings as S, SiteRow, vipLabel } from '../api';
+import { Badge, BrandMark, Chips, Copyable, ErrorBox, Field, JobView, Loading, Modal, Toggle, useLoad, useToast } from '../ui';
 import type { Me } from '../me';
 
 interface SettingsView { settings: S; halyard_token_set: boolean; s3_secret_set: boolean; s3_error: string; installed_php: string[]; php_versions: string[] }
@@ -26,8 +26,33 @@ export function HalyardPage() {
       <div className="head"><div><h1>Halyard</h1><div className="sub">Publish sites on your load balancer. Only sites of the accounts this plugin is on for (see <Link to="/plugins">Plugins</Link>) can be published.</div></div>
         <button className="btn p" disabled={busy} onClick={save}>Save</button></div>
       <ErrorBox error={err} />
-      <div style={{ maxWidth: 860 }}><HalyardCard f={f} set={set} tokenSet={data.halyard_token_set} saved={data.settings} onSaved={reload} /></div>
+      <div style={{ maxWidth: 860 }} className="stack">
+        <MoveOffCard />
+        <HalyardCard f={f} set={set} tokenSet={data.halyard_token_set} saved={data.settings} onSaved={reload} />
+      </div>
     </>
+  );
+}
+
+// MoveOffCard moves every site published on Halyard to being served by
+// Berth directly.
+function MoveOffCard() {
+  const sites = useLoad(() => get<SiteRow[]>('/sites'));
+  const [job, setJob] = useState<number | null>(null);
+  const toast = useToast();
+  const list = sites.data ?? [];
+  const on = list.filter((s) => s.halyard.enabled);
+  const moving = list.filter((s) => !s.halyard.enabled && s.halyard.host_id);
+  if (!sites.data || (on.length === 0 && moving.length === 0)) return null;
+  const start = () => confirm(`Move ${on.length} site${on.length === 1 ? '' : 's'} to Berth? For each one Berth gets its own certificate, serves it directly and points its DNS here (with the Cloudflare plugin). Halyard keeps answering until the switch is done, so visitors see no gap. A site whose certificate fails stays on Halyard.`)
+    && post<{ job_id: number }>('/halyard/move-all').then((r) => setJob(r.job_id)).catch((e) => toast(e.message, true));
+  return (
+    <div className="card"><div className="ch"><h3>Serve sites from Berth</h3>{on.length > 0 && <button className="btn s p" onClick={start}>Move all sites to Berth</button>}</div><div className="cb">
+      <p className="muted">{on.length > 0 ? `${on.length} site${on.length === 1 ? ' is' : 's are'} published on Halyard.` : 'No sites are published on Halyard any more.'}
+        {moving.length > 0 && ` ${moving.length} ${moving.length === 1 ? 'has' : 'have'} moved and still ${moving.length === 1 ? 'has its' : 'have their'} Halyard host until the switch-over finishes.`}</p>
+      <p className="dim" style={{ fontSize: 12.5, marginBottom: 0 }}>Before you start: set this server's public address under Settings → Customers, make sure ports 80 and 443 on it reach this server, and turn on "Manage DNS records for sites" in the Cloudflare plugin with a token that can edit DNS. Once every site has moved you can turn this plugin off.</p>
+      {job !== null && <Modal title="Moving sites to Berth" onClose={() => { setJob(null); sites.reload(); }}><JobView id={job} onDone={sites.reload} /></Modal>}
+    </div></div>
   );
 }
 

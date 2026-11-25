@@ -7,6 +7,7 @@ import (
 	"net"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/joshuadouch/berth/internal/halyard"
 	"github.com/joshuadouch/berth/internal/model"
@@ -431,7 +432,9 @@ func (e *Engine) LinkHalyard(ctx context.Context, name string, l model.HalyardLi
 	if !validExposure(l.Exposure) {
 		return s, fmt.Errorf("unknown exposure %q", l.Exposure)
 	}
+	before := s
 	s.Halyard.Enabled = true
+	s.Halyard.MovedAt, s.Halyard.RemoveAt = time.Time{}, time.Time{}
 	if l.VIPID != "" {
 		s.Halyard.VIPID = l.VIPID
 	}
@@ -444,6 +447,10 @@ func (e *Engine) LinkHalyard(ctx context.Context, name string, l model.HalyardLi
 	e.saveHalyardLink(ctx, &s, err, logf)
 	if err == nil {
 		e.Store.AddEvent(ctx, "info", "halyard", s.Name, author+" published "+s.Domain+" on Halyard")
+		if !before.Halyard.Enabled {
+			// Halyard keeps the records now; DNS plugins let go of theirs.
+			e.siteChanged(ctx, &before, &s, nil)
+		}
 	}
 	return s, err
 }
@@ -459,9 +466,13 @@ func (e *Engine) UnlinkHalyard(ctx context.Context, name string, author string) 
 	if err := e.unlinkHalyard(ctx, &s, func(string, ...any) {}); err != nil {
 		return s, err
 	}
-	s.Halyard = model.HalyardLink{}
+	before := s
+	s.Halyard = model.HalyardLink{MovedAt: s.Halyard.MovedAt}
 	if err := e.Store.SaveSite(ctx, s); err != nil {
 		return s, err
+	}
+	if before.Halyard.Enabled {
+		e.siteChanged(ctx, &before, &s, nil)
 	}
 	e.Store.AddEvent(ctx, "info", "halyard", s.Name, author+" removed "+s.Domain+" from Halyard")
 	return s, nil

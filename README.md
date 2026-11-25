@@ -96,6 +96,10 @@ by default (cgroup v2); check with `systemctl status berth-acct-<account>.slice`
 - **Safe updates.** WordPress updates (now or on a schedule per site) back up
   first, check the home and login pages afterwards and roll back if they broke.
 - **Search and replace** in a WordPress database, with a preview, through WP-CLI.
+- **Cloudflare DNS** (Cloudflare plugin): each site's domains get A/AAAA records
+  pointing at this server, kept right as domains change; certificates are
+  checked through Cloudflare DNS, so HTTPS works before DNS moves. Hosting
+  customers can connect their own Cloudflare account on the Cloudflare page.
 - **Clear Cloudflare's cache** for a site's domains in one click.
 - PHP version, memory, upload limit, workers, execution time, input vars and any
   other `php.ini` setting per site; extra domains with an
@@ -201,6 +205,27 @@ pool and keeps the host's VIP, exposure, DNS, certificate and other routes, so
 the switch is just the backend. If a host shares only some of the domains, or
 serves others too, publishing stops with an error naming them, so another site
 is never moved by accident.
+
+### Moving sites off Halyard
+
+To serve sites from Berth directly instead (Berth ends HTTPS with its own Let's
+Encrypt certificates):
+
+1. Under **Settings → Customers**, set this server's public IPv4 (and IPv6), and
+   make sure ports 80 and 443 on it reach this server.
+2. Give the Cloudflare plugin's API token **Zone → Zone → Read** and **Zone →
+   DNS → Edit** too, and turn on **Manage DNS records for sites**.
+3. Press **Move to Berth** on a site's Halyard card, or **Move all sites to
+   Berth** on the Halyard page.
+
+For each site Berth switches to serving HTTPS itself while still answering
+Halyard (plain HTTP with `X-Forwarded-Proto: https` from a trusted proxy is
+served, not redirected), gets a certificate through Cloudflare DNS (or over HTTP
+through Halyard), then rewrites the Halyard-made Cloudflare records in place to
+point at this server. Halyard's host is removed 15 minutes later. Visitors see
+no gap. If the certificate cannot be had, the site goes back to Halyard as it
+was. Without the Cloudflare plugin, point DNS yourself and press **Remove from
+Halyard now**. When no site is left on Halyard, turn its plugin off.
 
 ### Off-site backups
 

@@ -104,6 +104,13 @@ func httpConf(p Paths, st model.Settings, tls bool) string {
 	w("    \"1:https\" on;")
 	w("    default $https;")
 	w("}")
+	w("# Plain-HTTP requests to HTTPS sites go to HTTPS, except Let's Encrypt")
+	w("# checks and requests a trusted proxy already took over HTTPS.")
+	w("map \"$berth_https:$uri\" $berth_to_https {")
+	w("    default 1;")
+	w("    \"~^on:\" 0;")
+	w("    \"~^[^:]*:/\\.well-known/acme-challenge/\" 0;")
+	w("}")
 	w("map $berth_https $berth_scheme {")
 	w("    on https;")
 	w("    default http;")
@@ -210,7 +217,14 @@ func Vhost(p Paths, st model.Settings, s model.Site) string {
 	w("# %s (%s)", s.Domain, s.Type.Label())
 	names := s.Hostnames()
 	tls := s.ServesTLS()
+	// HTTPS sites answer on both ports: a load balancer in front may still
+	// send plain HTTP (with X-Forwarded-Proto), and everyone else is sent to
+	// HTTPS.
 	listen := func() {
+		w("    listen 80;")
+		if p.IPv6 {
+			w("    listen [::]:80;")
+		}
 		if tls {
 			w("    listen 443 ssl http2;")
 			if p.IPv6 {
@@ -219,32 +233,7 @@ func Vhost(p Paths, st model.Settings, s model.Site) string {
 			w("    ssl_certificate %s;", p.CertFile(s.Name))
 			w("    ssl_certificate_key %s;", p.KeyFile(s.Name))
 			tlsParams(w)
-			return
 		}
-		w("    listen 80;")
-		if p.IPv6 {
-			w("    listen [::]:80;")
-		}
-	}
-	if tls {
-		// Plain HTTP only answers certificate checks and sends everyone else
-		// to HTTPS.
-		w("server {")
-		w("    listen 80;")
-		if p.IPv6 {
-			w("    listen [::]:80;")
-		}
-		w("    server_name %s;", strings.Join(names, " "))
-		w("    access_log %s berth;", filepath.Join(p.LogDir, s.Name, "access.log"))
-		acmeLocation(w, p)
-		w("    location / {")
-		if s.RedirectAliases && len(s.Aliases) > 0 {
-			w("        return 301 https://%s$request_uri;", s.Domain)
-		} else {
-			w("        return 301 https://$host$request_uri;")
-		}
-		w("    }")
-		w("}")
 	}
 	if s.RedirectAliases && len(s.Aliases) > 0 {
 		names = []string{s.Domain}
@@ -252,11 +241,15 @@ func Vhost(p Paths, st model.Settings, s model.Site) string {
 		listen()
 		w("    server_name %s;", strings.Join(s.Aliases, " "))
 		w("    access_log %s berth;", filepath.Join(p.LogDir, s.Name, "access.log"))
-		if !tls && s.LocalTLS() {
+		if s.LocalTLS() {
 			acmeLocation(w, p)
 		}
 		w("    location / {")
-		w("        return 301 $berth_scheme://%s$request_uri;", s.Domain)
+		if tls {
+			w("        return 301 https://%s$request_uri;", s.Domain)
+		} else {
+			w("        return 301 $berth_scheme://%s$request_uri;", s.Domain)
+		}
 		w("    }")
 		w("}")
 	}
@@ -269,7 +262,12 @@ func Vhost(p Paths, st model.Settings, s model.Site) string {
 	w("    error_log %s warn;", filepath.Join(p.LogDir, s.Name, "error.log"))
 	w("    client_max_body_size %dm;", s.UploadMB)
 	w("    server_tokens off;")
-	if !tls && s.LocalTLS() {
+	if tls {
+		w("    if ($berth_to_https) {")
+		w("        return 301 https://$host$request_uri;")
+		w("    }")
+	}
+	if s.LocalTLS() {
 		acmeLocation(w, p)
 	}
 	if st.ProxyOnly && !s.LocalTLS() {
