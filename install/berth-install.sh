@@ -275,7 +275,6 @@ if [[ $UPGRADE == 1 ]]; then
 fi
 echo -e " ${GN}Berth is ready.${CL}"
 echo -e "   Open ${BL}https://${IP:-<this-machine>}:${PORT}${CL} and create the admin account."
-echo -e "   Sites answer on ${BL}http://${IP:-<this-machine>}:80${CL}; point a Halyard pool at it"
-echo -e "   (health check path /berth-health) and add this server's Halyard nodes as trusted proxies."
+echo -e "   Sites answer on ports 80 and 443; point their DNS at this server's public address."
 echo -e "   To update later, run ${BL}berth-update${CL}."
 echo

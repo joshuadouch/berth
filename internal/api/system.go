@@ -53,7 +53,6 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		"backups": len(backups), "backup_bytes": backupBytes, "jobs": jobs, "events": events,
 		"settings": map[string]any{
 			"backup_enabled": st.BackupEnabled, "backup_time": st.BackupTime, "trusted_proxies": st.TrustedProxies,
-			"halyard": st.Halyard.URL != "" && st.Halyard.Token != "",
 		},
 	})
 }
@@ -107,7 +106,7 @@ func (s *Server) customerDashboard(w http.ResponseWriter, r *http.Request, sites
 		"sites": len(sites), "counts": counts, "attention": problems,
 		"services": []any{}, "disks": []any{}, "usage": usage,
 		"backups": backups, "backup_bytes": backupBytes, "jobs": jobs, "events": events,
-		"settings": map[string]any{"backup_enabled": false, "backup_time": "", "trusted_proxies": []string{}, "halyard": false},
+		"settings": map[string]any{"backup_enabled": false, "backup_time": "", "trusted_proxies": []string{}},
 		"customer": true, "plan": s.planUsage(ctx, currentUser(r).AccountID),
 	})
 }
@@ -362,10 +361,9 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"settings": view, "installed_php": s.Engine.InstalledPHP(), "php_versions": model.PHPVersions})
 		return
 	}
-	tokenSet := st.Halyard.Token != ""
 	secretSet := st.S3.SecretKey != ""
-	st.Halyard.Token, st.S3.SecretKey, st.CloudflareToken = "", "", ""
-	writeJSON(w, 200, map[string]any{"settings": st, "halyard_token_set": tokenSet, "s3_secret_set": secretSet,
+	st.S3.SecretKey, st.CloudflareToken = "", ""
+	writeJSON(w, 200, map[string]any{"settings": st, "s3_secret_set": secretSet,
 		"s3_error":      s.Engine.RemoteError(r.Context()),
 		"installed_php": s.Engine.InstalledPHP(), "php_versions": model.PHPVersions})
 }
@@ -380,11 +378,6 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
-	}
-	if st.Halyard.Token == "" {
-		st.Halyard.Token = cur.Halyard.Token // blank keeps the saved token
-	} else if st.Halyard.Token == "-" {
-		st.Halyard.Token = ""
 	}
 	if st.S3.SecretKey == "" {
 		st.S3.SecretKey = cur.S3.SecretKey
@@ -412,7 +405,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Store.AddEvent(r.Context(), "info", "settings", "", currentUser(r).Username+" changed settings")
-	st.Halyard.Token, st.S3.SecretKey, st.CloudflareToken = "", "", ""
+	st.S3.SecretKey, st.CloudflareToken = "", ""
 	writeJSON(w, 200, st)
 }
 
@@ -485,84 +478,6 @@ func (s *Server) startUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Store.AddEvent(r.Context(), "info", "update", "", currentUser(r).Username+" started an update")
 	writeJSON(w, 200, map[string]any{"ok": true})
-}
-
-// Halyard ----------------------------------------------------------------------
-
-func (s *Server) halyardInfo(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, s.Engine.HalyardInfo(r.Context()))
-}
-
-func (s *Server) halyardSync(w http.ResponseWriter, r *http.Request) {
-	site, ok := s.site(w, r)
-	if !ok {
-		return
-	}
-	var req model.HalyardLink
-	if err := readJSON(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	site, err := s.Engine.LinkHalyard(r.Context(), site.Name, req, currentUser(r).Username)
-	if err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	writeJSON(w, 200, site)
-}
-
-func (s *Server) halyardUnlink(w http.ResponseWriter, r *http.Request) {
-	site, ok := s.site(w, r)
-	if !ok {
-		return
-	}
-	site, err := s.Engine.UnlinkHalyard(r.Context(), site.Name, currentUser(r).Username)
-	if err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	writeJSON(w, 200, site)
-}
-
-// halyardMove moves a site off Halyard so Berth serves it directly.
-func (s *Server) halyardMove(w http.ResponseWriter, r *http.Request) {
-	site, ok := s.site(w, r)
-	if !ok {
-		return
-	}
-	id, err := s.Engine.MoveOffHalyard(r.Context(), site.Name, currentUser(r).Username)
-	if err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	writeJSON(w, 202, map[string]any{"job_id": id})
-}
-
-// halyardMoveAll moves every site off Halyard.
-func (s *Server) halyardMoveAll(w http.ResponseWriter, r *http.Request) {
-	id, err := s.Engine.MoveAllOffHalyard(r.Context(), currentUser(r).Username)
-	if err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	writeJSON(w, 202, map[string]any{"job_id": id})
-}
-
-func (s *Server) halyardPool(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Address string `json:"address"`
-	}
-	if err := readJSON(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	p, err := s.Engine.CreateHalyardPool(r.Context(), req.Address)
-	if err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	s.Store.AddEvent(r.Context(), "info", "halyard", "", currentUser(r).Username+" created the Halyard pool "+p.Name)
-	writeJSON(w, 200, p)
 }
 
 func (s *Server) testS3(w http.ResponseWriter, r *http.Request) {

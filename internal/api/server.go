@@ -104,9 +104,6 @@ func (s *Server) Handler() http.Handler {
 	as("GET /api/sites/{id}/performance", s.sitePerformance)
 	as("GET /api/sites/{id}/resources", s.siteResources)
 	ad("GET /api/resources", s.serverResources)
-	ad("POST /api/sites/{id}/halyard", s.halyardSync)
-	ad("DELETE /api/sites/{id}/halyard", s.halyardUnlink)
-	ad("POST /api/sites/{id}/halyard/move", s.halyardMove)
 	ad("PUT /api/sites/{id}/account", s.moveSite)
 
 	a("GET /api/backups", s.listBackups)
@@ -134,9 +131,6 @@ func (s *Server) Handler() http.Handler {
 
 	a("GET /api/settings", s.getSettings)
 	ad("PUT /api/settings", s.putSettings)
-	ad("GET /api/halyard", s.halyardInfo)
-	ad("POST /api/halyard/pool", s.halyardPool)
-	ad("POST /api/halyard/move-all", s.halyardMoveAll)
 	ad("GET /api/system", s.system)
 	ad("POST /api/system/php/{v}", s.installPHP)
 	ad("POST /api/system/php-updates/check", s.checkPHPUpdates)

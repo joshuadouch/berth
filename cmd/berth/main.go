@@ -111,9 +111,9 @@ func serve(cfgPath string) error {
 	eng.Plugins = reg
 	eng.Hooks = reg
 	eng.Challenges = reg
-	// Halyard and Cloudflare were settings before they were plugins.
+	// Cloudflare was settings before it was a plugin.
 	if err := plugins.Migrate(ctx, st, reg); err != nil {
-		log.Error("moving Halyard and Cloudflare settings into plugins failed", "err", err)
+		log.Error("moving Cloudflare settings into its plugin failed", "err", err)
 	}
 	// Re-apply on start so fixes in a new release reach every site.
 	if err := eng.Apply(ctx); err != nil {

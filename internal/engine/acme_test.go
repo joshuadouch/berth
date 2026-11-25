@@ -42,7 +42,6 @@ func TestCertDue(t *testing.T) {
 	for _, f := range []func(*model.Site){
 		func(x *model.Site) { x.TLSMode = model.TLSModeProxy },
 		func(x *model.Site) { x.HTTPS = false },
-		func(x *model.Site) { x.Halyard.Enabled = true },
 		func(x *model.Site) { x.Status = model.StatusProvisioning },
 	} {
 		c := s

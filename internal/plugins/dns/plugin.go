@@ -439,7 +439,7 @@ func (p *Plugin) siteSets(ctx context.Context, c plugin.Config, account, zone st
 	var out []RRSet
 	done := map[string]bool{}
 	for _, s := range sites {
-		if s.AccountID != account || s.Halyard.Enabled || s.Status == model.StatusDeleting {
+		if s.AccountID != account || s.Status == model.StatusDeleting {
 			continue
 		}
 		for _, h := range s.Hostnames() {
@@ -846,7 +846,7 @@ func (p *Plugin) SiteChanged(ctx context.Context, old, cur *model.Site, logf fun
 	}
 	hosts := func(s *model.Site) map[string]bool {
 		m := map[string]bool{}
-		if s != nil && !s.Halyard.Enabled && p.host.ActiveFor(ctx, s.AccountID) {
+		if s != nil && p.host.ActiveFor(ctx, s.AccountID) {
 			for _, h := range s.Hostnames() {
 				m[h] = true
 			}
@@ -944,10 +944,10 @@ func only(set RRSet, ip string) bool {
 
 // autoZone adds a new customer site's domain as a zone, so the customer
 // only has to set the nameservers at their registrar. It skips the admin's
-// own sites, sites on Halyard, domains already hosted here and accounts at
+// own sites, domains already hosted here and accounts at
 // their plan's limit.
 func (p *Plugin) autoZone(ctx context.Context, c plugin.Config, s *model.Site, logf func(string, ...any)) {
-	if !c.Bool("auto_zones") || s.Halyard.Enabled || s.AccountID == "" || s.AccountID == p.host.AdminAccount(ctx) || !p.host.ActiveFor(ctx, s.AccountID) {
+	if !c.Bool("auto_zones") || s.AccountID == "" || s.AccountID == p.host.AdminAccount(ctx) || !p.host.ActiveFor(ctx, s.AccountID) {
 		return
 	}
 	if zoneFor(p.owners(ctx), s.AccountID, s.Domain) != "" {

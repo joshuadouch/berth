@@ -8,7 +8,6 @@ import (
 	"github.com/joshuadouch/berth/internal/model"
 	"github.com/joshuadouch/berth/internal/plugin"
 	"github.com/joshuadouch/berth/internal/plugins/cloudflare"
-	"github.com/joshuadouch/berth/internal/plugins/halyard"
 	"github.com/joshuadouch/berth/internal/store"
 )
 
@@ -20,20 +19,25 @@ func TestMigrate(t *testing.T) {
 	defer st.Close()
 	ctx := context.Background()
 	_ = st.SaveUser(ctx, model.User{ID: "u1", Username: "josh", Email: "j@x.y"})
-	_ = st.SaveSite(ctx, model.Site{ID: "a", Name: "a", Halyard: model.HalyardLink{Enabled: true, HostID: "h1"}})
+	_ = st.SaveSite(ctx, model.Site{ID: "a", Name: "a"})
+	_ = st.SetKV(ctx, "plugin:halyard", map[string]any{"enabled": true})
 	if err := st.MigrateAccounts(ctx); err != nil {
 		t.Fatal(err)
 	}
 	s, _ := st.Settings(ctx)
-	s.Halyard.URL, s.CloudflareToken, s.AccessTeam, s.AccessAUD, s.AccessEmails = "https://h:8443", "tok", "team", "aud", []string{"a@b.c"}
+	s.CloudflareToken, s.AccessTeam, s.AccessAUD, s.AccessEmails = "tok", "team", "aud", []string{"a@b.c"}
 	_ = st.SetSettings(ctx, s)
 	reg := plugin.NewRegistry(st, nil, All()...)
 	if err := Migrate(ctx, st, reg); err != nil {
 		t.Fatal(err)
 	}
 	u, _ := st.UserByID(ctx, "u1")
-	if !reg.ActiveFor(ctx, halyard.ID, u.AccountID) || !reg.ActiveFor(ctx, cloudflare.ID, u.AccountID) {
-		t.Fatal("plugins not on for the admin's account")
+	if !reg.ActiveFor(ctx, cloudflare.ID, u.AccountID) {
+		t.Fatal("cloudflare not on for the admin's account")
+	}
+	var left map[string]any
+	if _ = st.GetKV(ctx, "plugin:halyard", &left); left != nil {
+		t.Fatalf("halyard plugin state left behind: %v", left)
 	}
 	c, _ := reg.Config(ctx, cloudflare.ID)
 	team, aud, emails := cloudflare.Access(c)
@@ -44,11 +48,13 @@ func TestMigrate(t *testing.T) {
 		t.Fatal("old Cloudflare settings left behind")
 	}
 	// Running again changes nothing, even after the admin turns a plugin off.
-	_ = reg.SetAccounts(ctx, halyard.ID, nil)
+	_ = reg.SetAccounts(ctx, cloudflare.ID, nil)
 	if err := Migrate(ctx, st, reg); err != nil {
 		t.Fatal(err)
 	}
-	if reg.ActiveFor(ctx, halyard.ID, u.AccountID) {
+	var state plugin.State
+	_ = st.GetKV(ctx, "plugin:cloudflare", &state)
+	if len(state.Accounts) != 0 {
 		t.Fatal("migration ran twice")
 	}
 }

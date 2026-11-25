@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { AccountView, ago, Backup, bytes, del, exposureLabel, fmtDate, get, HalyardInfo, Job, post, put, Serve, serveFields, serveOf, Site, SiteDetail, siteURL, typeLabel, vipLabel, WPInfo } from '../api';
+import { AccountView, ago, Backup, bytes, del, fmtDate, get, Job, post, put, Serve, serveFields, serveOf, Site, SiteDetail, siteURL, typeLabel, WPInfo } from '../api';
 import { useMe } from '../me';
 import FilesTab from './Files';
 import { SiteDNSCard } from './DNS';
@@ -78,7 +78,6 @@ export default function SitePage() {
 }
 
 function Overview({ d, reload, startJob }: { d: SiteDetail; reload: () => void; startJob: (p: Promise<{ job_id: number }>, m?: string) => void }) {
-  const { isAdmin } = useMe();
   const s = d.site;
   const toast = useToast();
   const [dbpw, setDbpw] = useState(false);
@@ -112,7 +111,6 @@ function Overview({ d, reload, startJob }: { d: SiteDetail; reload: () => void; 
         </div>
       </div>
       <div className="stack">
-        {isAdmin && d.halyard && <HalyardCard s={s} reload={reload} startJob={startJob} />}
         {s.db && <div className="card"><div className="ch"><h3>Database</h3>
           <button className="btn s" onClick={() => confirm('Set a new database password?' + (s.type === 'wordpress' ? ' wp-config.php is updated for you.' : ' Update your app\'s config afterwards.')) && act(post('/sites/' + s.id + '/db/password'), 'Password changed')}>New password</button></div>
           <div className="cb">
@@ -136,59 +134,6 @@ function Overview({ d, reload, startJob }: { d: SiteDetail; reload: () => void; 
         </div>
       </div>
     </div>
-  );
-}
-
-function HalyardCard({ s, reload, startJob }: { s: Site; reload: () => void; startJob: (p: Promise<{ job_id: number }>, m?: string) => void }) {
-  const info = useLoad(() => get<HalyardInfo>('/halyard'));
-  const toast = useToast();
-  const [vip, setVip] = useState(s.halyard.vip_id);
-  const [exposure, setExposure] = useState(s.halyard.exposure);
-  const [dns, setDns] = useState(!s.halyard.no_dns);
-  const [busy, setBusy] = useState(false);
-  const h = s.halyard;
-  const i = info.data;
-  if (!i?.configured && !h.enabled && !h.host_id) return null;
-  const moving = !h.enabled && !!h.host_id;
-  const run = (p: Promise<unknown>, ok: string) => {
-    setBusy(true);
-    p.then(() => toast(ok)).catch((e) => toast(e.message, true)).finally(() => { setBusy(false); reload(); });
-  };
-  const vipName = (id: string) => { const v = i?.vips.find((x) => x.id === id); return v ? vipLabel(v) : id || 'default'; };
-  return (
-    <div className="card"><div className="ch"><h3>Halyard</h3>{moving ? <Badge kind="a">Moving to Berth</Badge> : !h.enabled && h.moved_at ? <Badge kind="g">Moved to Berth</Badge> : !h.enabled ? <Badge kind="n">Not published</Badge> : h.error ? <Badge kind="b">Error</Badge> : h.host_id ? <Badge kind="g">Published</Badge> : <Badge kind="a">Pending</Badge>}</div><div className="cb">
-      {h.error && <div className="err">{h.error}</div>}
-      {i?.error && <div className="err">{i.error}</div>}
-      {h.enabled && <div className="kv" style={{ marginBottom: 12 }}>
-        <div>VIP</div><div>{vipName(h.vip_id)}</div>
-        <div>Exposure</div><div>{exposureLabel[h.exposure] ?? (h.exposure || 'default')}</div>
-        <div>DNS</div><div>{h.no_dns ? 'Not managed' : h.exposure === 'lan' ? 'Managed (record to the VIP)' : 'Managed, proxied by Cloudflare'}</div>
-        <div>Domains</div><div>{[s.domain, ...(s.aliases ?? [])].join(', ')}</div>
-        {h.cert_id && <><div>Certificate</div><div>Requested by Berth</div></>}
-      </div>}
-      {moving && <>
-        <p className="muted" style={{ marginBottom: 12 }}>Berth serves this site itself now{s.https ? ' with its own certificate' : ''}. Halyard still answers for it until its host is removed{h.remove_at ? <>, which happens automatically {fmtDate(h.remove_at)}</> : <>. Point the site's DNS at this server first (or let the Cloudflare plugin do it), then remove the host</>}.</p>
-        <button className="btn s" disabled={busy} onClick={() => confirm('Remove this site\'s host from Halyard now? Make sure its DNS points at this server first.') && run(del('/sites/' + s.id + '/halyard'), 'Removed from Halyard')}>Remove from Halyard now</button>
-      </>}
-      {!h.enabled && !moving && h.moved_at && <p className="muted" style={{ marginBottom: 12 }}>Moved off Halyard {fmtDate(h.moved_at)}. Berth serves it directly.</p>}
-      {!h.enabled && !moving && !h.moved_at && <p className="muted" style={{ marginBottom: 12 }}>Add a host on Halyard for this site's domains{s.https ? ', with a certificate if none covers them' : ''}.</p>}
-      {!moving && i?.configured && !i.error && <div className="grid2">
-        <Field label="VIP"><select className="input" value={vip} onChange={(e) => setVip(e.target.value)}>
-          <option value="">Default</option>
-          {i.vips.map((v) => <option key={v.id} value={v.id}>{vipLabel(v)}</option>)}</select></Field>
-        <Field label="Exposure"><select className="input" value={exposure} onChange={(e) => setExposure(e.target.value)}>
-          <option value="">Default</option>
-          {Object.entries(exposureLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
-      </div>}
-      {!moving && i?.configured && !i.error && <Toggle on={dns} onChange={setDns} label="Manage DNS in Cloudflare" />}
-      {!moving && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {h.enabled && <button className="btn s p" disabled={busy || s.status !== 'active'} onClick={() => confirm('Move this site to Berth? Berth gets its own certificate, serves the site directly and points its DNS here; Halyard keeps answering until the switch is done, so visitors see no gap.') && startJob(post('/sites/' + s.id + '/halyard/move'))}>Move to Berth</button>}
-        {i?.configured && <button className={'btn s' + (h.enabled ? '' : ' p')} disabled={busy || s.status !== 'active'} onClick={() => run(post('/sites/' + s.id + '/halyard', { vip_id: vip, exposure, no_dns: !dns }), h.enabled ? 'Halyard host updated' : 'Published on Halyard')}>
-          {h.enabled ? 'Update host' : 'Publish on Halyard'}</button>}
-        {h.enabled && <button className="btn s" disabled={busy} onClick={() => confirm('Remove this site\'s host from Halyard? Visitors will no longer reach it through the load balancer.') && run(del('/sites/' + s.id + '/halyard'), 'Removed from Halyard')}>Remove from Halyard</button>}
-      </div>}
-      {h.enabled && <div className="dim" style={{ fontSize: 12, marginTop: 10 }}>Changes to this site's domains or HTTPS update the host automatically. Edits you make on Halyard (HSTS, allow lists and so on) are kept.</div>}
-    </div></div>
   );
 }
 
@@ -223,9 +168,9 @@ function SettingsTab({ s, sftp, onSaved }: { s: Site; sftp: boolean; onSaved: (j
         <Field label="Other domains"><Chips values={f.aliases ?? []} onChange={(v) => set({ aliases: v })} placeholder="www.example.com" mono /></Field>
         {(f.aliases?.length ?? 0) > 0 && <Toggle on={f.redirect_aliases} onChange={(v) => set({ redirect_aliases: v })} label="Redirect other domains to the main domain" />}
         <Field label="Visitors use">
-          <select className="input" value={f.halyard.enabled && f.https ? 'proxy' : serveOf(f)} onChange={(e) => set(serveFields(e.target.value as Serve))}>
-            {!f.halyard.enabled && <option value="local">HTTPS (free Let's Encrypt certificate)</option>}
-            {(isAdmin || serveOf(f) === 'proxy') && <option value="proxy">{f.halyard.enabled ? 'HTTPS (Halyard ends it)' : 'HTTPS (Halyard or Cloudflare in front ends it)'}</option>}
+          <select className="input" value={serveOf(f)} onChange={(e) => set(serveFields(e.target.value as Serve))}>
+            <option value="local">HTTPS (free Let's Encrypt certificate)</option>
+            {(isAdmin || serveOf(f) === 'proxy') && <option value="proxy">HTTPS (a proxy or Cloudflare Tunnel in front ends it)</option>}
             <option value="http">HTTP only</option>
           </select>
         </Field>
@@ -513,7 +458,7 @@ function WPAdminButton({ site }: { site: Site }) {
   return <button className="btn white" onClick={open} disabled={busy} title="Opens WP admin logged in, no password needed"><Icon name="wp" />{busy ? 'Opening…' : 'WP admin'}</button>;
 }
 
-const localTLS = (s: Site) => s.https && s.tls_mode === 'local' && !s.halyard.enabled;
+const localTLS = (s: Site) => s.https && s.tls_mode === 'local';
 
 function httpsLabel(s: Site) {
   if (!s.https) return 'Off';

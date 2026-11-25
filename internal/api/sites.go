@@ -72,7 +72,6 @@ func (s *Server) getSite(w http.ResponseWriter, r *http.Request) {
 	backups, _ := s.Engine.Backups(r.Context(), site.Name)
 	jobs, _ := s.Store.Jobs(r.Context(), site.Name, 15)
 	events, _ := s.Store.Events(r.Context(), site.Name, 30)
-	admin := currentUser(r).IsAdmin()
 	var uptime *engine.UptimeState
 	if u, ok := s.Engine.UptimeStates(r.Context(), []model.Site{site})[site.Name]; ok {
 		uptime = &u
@@ -82,8 +81,7 @@ func (s *Server) getSite(w http.ResponseWriter, r *http.Request) {
 		"dir": s.Engine.Paths().SiteDir(site.Name), "user": site.User(), "socket": s.Cfg.Socket(site.Name),
 		"sftp_available": s.Cfg.SFTP.Enabled, "uptime": uptime,
 		"cloudflare": s.Plugins.ActiveFor(r.Context(), cloudflare.ID, site.AccountID),
-		"halyard":    admin && s.Engine.HalyardFor(r.Context(), site.AccountID),
-		"dns":        s.Plugins.ActiveFor(r.Context(), dns.ID, site.AccountID) && !site.Halyard.Enabled,
+		"dns":        s.Plugins.ActiveFor(r.Context(), dns.ID, site.AccountID),
 		"vulns":      s.Engine.VulnCounts(r.Context(), []model.Site{site})[site.Name],
 	})
 }
@@ -99,7 +97,6 @@ func (s *Server) createSite(w http.ResponseWriter, r *http.Request) {
 	case !u.IsAdmin():
 		// Customers' sites are theirs, and server-level options stay off.
 		req.AccountID = u.AccountID
-		req.Halyard = model.HalyardLink{}
 		req.TLSMode = model.TLSModeLocal // customers have no proxy in front
 		req.NginxCustom = ""
 		req.MemoryMB, req.MaxChildren = 0, 0

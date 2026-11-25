@@ -85,7 +85,7 @@ func httpConf(p Paths, st model.Settings, tls bool) string {
 	b.WriteString(header)
 	w("log_format berth '$remote_addr - $remote_user [$time_local] \"$request\" $status $body_bytes_sent \"$http_referer\" \"$http_user_agent\" $request_time';")
 	w("")
-	w("# Trusted proxies (Halyard) may set the client address and scheme.")
+	w("# Trusted proxies (a load balancer in front) may set the client address and scheme.")
 	w("geo $realip_remote_addr $berth_from_proxy {")
 	w("    default 0;")
 	w("    127.0.0.1 1;")

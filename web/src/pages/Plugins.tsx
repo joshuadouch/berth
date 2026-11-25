@@ -5,10 +5,9 @@ import { Badge, ErrorBox, Field, Icon, Loading, Toggle, useLoad, useToast } from
 import Cloudflare from './Cloudflare';
 import DNS from './DNS';
 import Mail from './Mail';
-import { HalyardPage } from './Settings';
 
 // Plugins with a page of their own, by plugin ID. The page is at /p/<id>.
-export const pluginPages: Record<string, ComponentType> = { mailcow: Mail, halyard: HalyardPage, dns: DNS, cloudflare: Cloudflare };
+export const pluginPages: Record<string, ComponentType> = { mailcow: Mail, dns: DNS, cloudflare: Cloudflare };
 
 export default function Plugins() {
   const { data, error, reload } = useLoad(() => get<PluginView[]>('/plugins'));

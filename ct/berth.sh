@@ -72,7 +72,7 @@ ask CORE_COUNT "CPU cores" "2"
 ask RAM_SIZE "Memory (MiB)" "2048"
 ask DISK_SIZE "Disk size (GiB)" "20"
 ask BRIDGE "Bridge" "vmbr0"
-ask NET "IPv4 (CIDR like 10.0.10.20/24, or dhcp). A fixed address is best: Halyard points at it." "dhcp"
+ask NET "IPv4 (CIDR like 10.0.10.20/24, or dhcp). A fixed address is best: DNS points at it." "dhcp"
 if [[ "$NET" != "dhcp" ]]; then ask GATE "Gateway" ""; fi
 ask BERTH_PHP "PHP version to install first" "8.4"
 ask BACKUP_MOUNT "Folder on this Proxmox host for backups (blank: keep them inside the container)" ""
@@ -167,7 +167,7 @@ IP="$(pct exec "$CTID" -- ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -
 echo
 echo -e " ${GN}${BOLD}Berth is installed in LXC ${CTID}.${CL}"
 echo -e "   Web UI: ${BL}https://${IP}:8443${CL} (create the admin account straight away)"
-echo -e "   Sites:  ${BL}http://${IP}:80${CL} (put Halyard in front; health check /berth-health)"
+echo -e "   Sites:  ports 80 and 443 on ${BL}${IP}${CL} (forward them from your public address)"
 echo
 if [[ -n "${ROOT_PASSWORD:-}" ]]; then
   echo -e "   Shell: Proxmox console or ${BL}pct enter ${CTID}${CL}, root with the password you set"

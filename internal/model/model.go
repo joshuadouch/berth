@@ -68,23 +68,6 @@ type SFTP struct {
 	PasswordSet bool `json:"password_set"`
 }
 
-// HalyardLink is the host Berth created on Halyard for this site.
-type HalyardLink struct {
-	Enabled  bool   `json:"enabled"`
-	HostID   string `json:"host_id"`
-	VIPID    string `json:"vip_id"`
-	Exposure string `json:"exposure"` // lan, public, tunnel
-	CertID   string `json:"cert_id"`
-	// NoDNS leaves Cloudflare DNS alone for this site (DNS is managed by default).
-	NoDNS bool   `json:"no_dns"`
-	Error string `json:"error"`
-	// MovedAt is when the site moved off Halyard to be served by Berth.
-	MovedAt time.Time `json:"moved_at,omitzero"`
-	// RemoveAt is when the Halyard host of a moved site is deleted (zero:
-	// when someone presses Remove, because DNS still has to be changed).
-	RemoveAt time.Time `json:"remove_at,omitzero"`
-}
-
 // Certificate states.
 const (
 	TLSNone    = ""
@@ -107,13 +90,12 @@ type SiteTLS struct {
 
 // Who ends HTTPS for a site.
 const (
-	TLSModeProxy = ""      // a load balancer or Cloudflare in front (Halyard)
+	TLSModeProxy = ""      // a load balancer, tunnel or Cloudflare in front ends it
 	TLSModeLocal = "local" // Berth, with a Let's Encrypt certificate
 )
 
-// LocalTLS reports whether Berth itself ends HTTPS for the site. Sites
-// published on Halyard always leave TLS to Halyard.
-func (s Site) LocalTLS() bool { return s.HTTPS && s.TLSMode == TLSModeLocal && !s.Halyard.Enabled }
+// LocalTLS reports whether Berth itself ends HTTPS for the site.
+func (s Site) LocalTLS() bool { return s.HTTPS && s.TLSMode == TLSModeLocal }
 
 // ServesTLS reports whether nginx serves the site on port 443 with its
 // certificate.
@@ -157,19 +139,18 @@ type Site struct {
 	RedirectAliases bool `json:"redirect_aliases"`
 	// FrontController sends requests for missing files to /index.php.
 	FrontController bool `json:"front_controller"`
-	// HTTPS means visitors reach the site over HTTPS (TLS ends at Halyard).
+	// HTTPS means visitors reach the site over HTTPS.
 	HTTPS bool `json:"https"`
 	// TLSMode says who ends HTTPS: a proxy in front ("") or Berth ("local").
-	TLSMode     string      `json:"tls_mode"`
-	Enabled     bool        `json:"enabled"`
-	UploadMB    int         `json:"upload_mb"`
-	MemoryMB    int         `json:"memory_mb"`
-	MaxChildren int         `json:"max_children"`
-	Backups     bool        `json:"backups"`
-	DB          *Database   `json:"db,omitempty"`
-	WP          *WordPress  `json:"wp,omitempty"`
-	SFTP        SFTP        `json:"sftp"`
-	Halyard     HalyardLink `json:"halyard"`
+	TLSMode     string     `json:"tls_mode"`
+	Enabled     bool       `json:"enabled"`
+	UploadMB    int        `json:"upload_mb"`
+	MemoryMB    int        `json:"memory_mb"`
+	MaxChildren int        `json:"max_children"`
+	Backups     bool       `json:"backups"`
+	DB          *Database  `json:"db,omitempty"`
+	WP          *WordPress `json:"wp,omitempty"`
+	SFTP        SFTP       `json:"sftp"`
 	// Import is the uploaded site a new site is created from.
 	Import      *SiteImport `json:"import,omitempty"`
 	Status      string      `json:"status"`
@@ -465,7 +446,7 @@ func (s *Site) Normalize() error {
 
 // Settings are the panel-wide options edited on the Settings page.
 type Settings struct {
-	// TrustedProxies are the addresses of Halyard nodes and VIPs. Requests
+	// TrustedProxies are load balancers or reverse proxies in front. Requests
 	// from them may set the client IP (X-Real-IP) and scheme (X-Forwarded-Proto).
 	TrustedProxies []string `json:"trusted_proxies"`
 	// ProxyOnly refuses site requests that do not come from a trusted proxy.
@@ -485,8 +466,6 @@ type Settings struct {
 	AccessTeam   string   `json:"access_team"`
 	AccessAUD    string   `json:"access_aud"`
 	AccessEmails []string `json:"access_emails"`
-
-	Halyard HalyardSettings `json:"halyard"`
 
 	// S3 copies every backup to S3-compatible storage (Backblaze B2, R2...).
 	S3 S3Settings `json:"s3"`
@@ -565,19 +544,6 @@ type ACMESettings struct {
 	Off bool `json:"off"`
 }
 
-// HalyardSettings connects Berth to a Halyard load balancer.
-type HalyardSettings struct {
-	URL      string `json:"url"` // e.g. https://10.0.30.11:8443
-	Token    string `json:"token,omitempty"`
-	PoolID   string `json:"pool_id"`   // the pool that points at this Berth server
-	VIPID    string `json:"vip_id"`    // default VIP for new sites
-	Exposure string `json:"exposure"`  // default exposure for new sites
-	Insecure bool   `json:"insecure"`  // skip TLS verification (self-signed UI cert)
-	AutoCert bool   `json:"auto_cert"` // request a certificate for each site
-	// NoDNS stops new sites from managing Cloudflare DNS by default.
-	NoDNS bool `json:"no_dns"`
-}
-
 var timeRe = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
 
 // Normalize fills defaults and validates settings.
@@ -640,22 +606,6 @@ func (st *Settings) Normalize() error {
 	}
 	if err := st.S3.normalize(); err != nil {
 		return err
-	}
-	// Sites default to proxied Cloudflare DNS. Settings saved before
-	// Halyard was connected carried the old LAN default, so move them on.
-	if st.Halyard.URL == "" && st.Halyard.Exposure == "lan" {
-		st.Halyard.Exposure = ""
-	}
-	switch st.Halyard.Exposure {
-	case "":
-		st.Halyard.Exposure = "public"
-	case "lan", "public", "tunnel":
-	default:
-		return fmt.Errorf("unknown exposure %q", st.Halyard.Exposure)
-	}
-	st.Halyard.URL = strings.TrimRight(strings.TrimSpace(st.Halyard.URL), "/")
-	if st.Halyard.URL != "" && !strings.HasPrefix(st.Halyard.URL, "https://") && !strings.HasPrefix(st.Halyard.URL, "http://") {
-		return fmt.Errorf("Halyard URL must start with https://")
 	}
 	return nil
 }

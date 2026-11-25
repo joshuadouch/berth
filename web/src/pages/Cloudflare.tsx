@@ -9,7 +9,7 @@ const B = '/p/cloudflare';
 
 export interface CFRecord { name: string; status: 'ok' | 'conflict' | 'no_zone' | 'error'; detail?: string; content?: string; proxied: boolean }
 export interface CFSite {
-  site: string; domain: string; account_id: string; connected: boolean; managed: boolean; on_halyard: boolean; dns_on: boolean;
+  site: string; domain: string; account_id: string; connected: boolean; managed: boolean; dns_on: boolean;
   proxied: boolean; off: boolean; records: CFRecord[]; checked?: string; note?: string;
 }
 interface Overview { own_token: boolean; zones: string[] | null; server_token: boolean; dns_on: boolean; proxied: boolean; ipv4: string; ipv6: string; sites: CFSite[] }
@@ -18,7 +18,6 @@ const recordBadge = (r: CFRecord) => r.status === 'ok' ? <Badge kind="g">Points 
   : r.status === 'no_zone' ? <Badge kind="n">Not in Cloudflare</Badge> : <Badge kind="b">Error</Badge>;
 
 function siteBadge(s: CFSite) {
-  if (s.on_halyard) return <Badge kind="n">Halyard manages it</Badge>;
   if (!s.connected) return <Badge kind="n">Not connected</Badge>;
   if (s.off) return <Badge kind="n">Off for this site</Badge>;
   if (!s.managed) return <Badge kind="n">Not managed</Badge>;
@@ -96,8 +95,7 @@ export function CloudflareDNSCard({ site }: { site: string }) {
   const conflict = data.records.some((r) => r.status === 'conflict');
   return (
     <div className="card"><div className="ch"><h3>Cloudflare DNS</h3>{siteBadge(data)}</div><div className="cb">
-      {data.on_halyard ? <p className="muted">Halyard keeps this site's records while the site is published there.</p>
-        : !data.connected ? <p className="muted">Connect your Cloudflare account on the <Link to="/p/cloudflare">Cloudflare</Link> page and this site's records are kept for you.</p>
+      {!data.connected ? <p className="muted">Connect your Cloudflare account on the <Link to="/p/cloudflare">Cloudflare</Link> page and this site's records are kept for you.</p>
         : <>
           {data.note && <div className="err">{data.note}</div>}
           {data.managed && data.records.length > 0 && <div className="kv" style={{ marginBottom: 12 }}>{data.records.map((r) => <Fragment key={r.name}>

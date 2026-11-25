@@ -3,11 +3,10 @@ export type SiteType = 'wordpress' | 'php_db' | 'php';
 export interface Database { name: string; user: string; password?: string }
 export interface WordPress { title: string; admin_user: string; admin_email: string; locale: string }
 export interface SFTP { enabled: boolean; keys: string[] | null; password_set: boolean }
-export interface HalyardLink { enabled: boolean; host_id: string; vip_id: string; exposure: string; cert_id: string; no_dns: boolean; error: string; moved_at?: string; remove_at?: string }
 export interface Site {
   id: string; name: string; type: SiteType; domain: string; aliases: string[] | null; php_version: string; doc_root: string;
   redirect_aliases: boolean; front_controller: boolean; https: boolean; tls_mode: '' | 'local'; tls: SiteTLS; enabled: boolean; upload_mb: number; memory_mb: number;
-  max_children: number; backups: boolean; db?: Database; wp?: WordPress; sftp: SFTP; halyard: HalyardLink; status: string;
+  max_children: number; backups: boolean; db?: Database; wp?: WordPress; sftp: SFTP; status: string;
   status_error: string; notes: string; created_at: string; nginx_custom?: string; account_id: string;
   php: PHPSettings; auto_update: AutoUpdate; no_monitor: boolean;
   import?: { files: string; files_name: string; db: string; db_name: string };
@@ -49,19 +48,12 @@ export interface Plan {
 export interface PlanUsage { plan: Plan | null; disk_used: number; sites: number }
 export interface AccountView extends Account { users: User[]; sites: string[]; usage: PlanUsage }
 
-export interface HalyardSettings { url: string; token?: string; pool_id: string; vip_id: string; exposure: string; insecure: boolean; auto_cert: boolean; no_dns: boolean }
 export interface S3Settings { enabled: boolean; endpoint: string; region: string; bucket: string; prefix: string; access_key: string; secret_key?: string; path_style: boolean; keep: number; local_keep: number }
-export interface HalyardVIP { id: string; address: string; label: string }
-export interface HalyardPool { id: string; name: string; members: { name: string; address: string }[] | null }
-export interface HalyardInfo { configured: boolean; error?: string; vips: HalyardVIP[]; pools: HalyardPool[]; pool_ok: boolean; local_addr: string; cloudflare?: { token_set: boolean; public_ip: string; tunnel_id: string } }
-export const exposureLabel: Record<string, string> = { public: 'Public, proxied by Cloudflare', tunnel: 'Cloudflare Tunnel (proxied)', lan: 'LAN only (DNS to the VIP, not proxied)' };
-export const vipLabel = (v: HalyardVIP) => (v.label ? `${v.label} (${v.address.split('/')[0]})` : v.address.split('/')[0]);
 export interface Settings {
   trusted_proxies: string[] | null; proxy_only: boolean; default_php: string;
   backup_enabled: boolean; backup_time: string; backup_keep: number; backup_dir: string;
   wp_locale: string; wp_admin_email: string; wp_admin_user: string;
   access_team: string; access_aud: string; access_emails: string[] | null;
-  halyard: HalyardSettings;
   s3: S3Settings;
   acme: ACMESettings;
   brand: BrandSettings;
@@ -70,7 +62,7 @@ export interface Settings {
 
 export interface SiteDetail {
   site: Site; usage: Usage; backups: Backup[]; jobs: Job[]; events: Event[]; dir: string; user: string; socket: string; sftp_available: boolean;
-  cloudflare: boolean; halyard: boolean; dns: boolean; uptime: UptimeState | null; vulns: number;
+  cloudflare: boolean; dns: boolean; uptime: UptimeState | null; vulns: number;
 }
 export interface WPInfo {
   version: string; core_update: string; siteurl: string; error?: string; plugin_updates: number; theme_updates: number;

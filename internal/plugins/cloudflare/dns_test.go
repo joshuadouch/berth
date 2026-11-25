@@ -111,10 +111,10 @@ func (f *fakeCF) find(name string) []Record {
 	return out
 }
 
-func TestEnsureTakesOverHalyardInPlace(t *testing.T) {
+func TestEnsureInPlace(t *testing.T) {
 	f := newFakeCF(t,
-		Record{Type: "A", Name: "example.com", Content: "198.51.100.1", Proxied: true, Comment: HalyardComment},
-		Record{Type: "CNAME", Name: "www.example.com", Content: "abc.cfargotunnel.com", Proxied: true, Comment: HalyardComment},
+		Record{Type: "A", Name: "example.com", Content: "198.51.100.1", Proxied: true, Comment: ManagedComment},
+		Record{Type: "CNAME", Name: "www.example.com", Content: "abc.cfargotunnel.com", Proxied: true, Comment: ManagedComment},
 		Record{Type: "A", Name: "shop.example.com", Content: "192.0.2.9", Comment: "made by hand"},
 		Record{Type: "MX", Name: "example.com", Content: "mail.example.com"},
 	)
@@ -139,7 +139,7 @@ func TestEnsureTakesOverHalyardInPlace(t *testing.T) {
 		}
 	}
 
-	// A tunnel CNAME is replaced with an A record.
+	// Berth's own CNAME is replaced with an A record.
 	f.ops = nil
 	if st := c.Ensure(ctx, "www.example.com", w); st.Status != StateOK {
 		t.Fatalf("www: %+v", st)
