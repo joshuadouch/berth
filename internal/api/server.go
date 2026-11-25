@@ -64,6 +64,8 @@ func (s *Server) Handler() http.Handler {
 	// open every site). ad: admins only.
 	a := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, s.requireAuth(h)) }
 	as := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, s.requireAuth(s.ownSite(h))) }
+	// ab is for a site's backups, which outlive the site.
+	ab := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, s.requireAuth(s.ownBackups(h))) }
 	ad := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, s.requireAuth(adminOnly(h))) }
 	a("GET /api/me", s.me)
 	a("POST /api/me/password", s.changePassword)
@@ -109,9 +111,9 @@ func (s *Server) Handler() http.Handler {
 	a("GET /api/backups", s.listBackups)
 	ad("POST /api/backups/run", s.runNightly)
 	as("POST /api/sites/{id}/backups", s.createBackup)
-	as("GET /api/sites/{id}/backups/{file}", s.downloadBackup)
+	ab("GET /api/sites/{id}/backups/{file}", s.downloadBackup)
 	as("POST /api/sites/{id}/backups/{file}/restore", s.restoreBackup)
-	as("DELETE /api/sites/{id}/backups/{file}", s.deleteBackup)
+	ab("DELETE /api/sites/{id}/backups/{file}", s.deleteBackup)
 	as("GET /api/sites/{id}/backups/{file}/browse", s.browseBackup)
 	as("GET /api/sites/{id}/backups/{file}/file", s.backupFile)
 

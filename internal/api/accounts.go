@@ -44,6 +44,28 @@ func (s *Server) ownSite(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// ownBackups lets a request through when the user may reach a site's
+// backups: the site's own account, or the account of a deleted site whose
+// backups are left (deleting a site keeps its final backup).
+func (s *Server) ownBackups(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.mayReachBackups(r, r.PathValue("id")) {
+			writeErr(w, 404, "not found")
+			return
+		}
+		h(w, r)
+	}
+}
+
+func (s *Server) mayReachBackups(r *http.Request, site string) bool {
+	u := currentUser(r)
+	if u.IsAdmin() {
+		return true
+	}
+	account, _, ok := s.Engine.BackupOwner(r.Context(), site)
+	return ok && u.AccountID != "" && account == u.AccountID
+}
+
 // canSee reports whether a user may open a site.
 func canSee(u model.User, site model.Site) bool {
 	return u.IsAdmin() || (u.AccountID != "" && site.AccountID == u.AccountID)
