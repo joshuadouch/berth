@@ -80,14 +80,6 @@ func (e *Engine) CreateSite(ctx context.Context, req CreateRequest, author strin
 	s.Status = model.StatusProvisioning
 	s.StatusError = ""
 	s.CreatedAt = time.Now().UTC()
-	// Only the request to publish survives; ids come from Halyard.
-	s.Halyard = model.HalyardLink{Enabled: s.Halyard.Enabled, VIPID: s.Halyard.VIPID, Exposure: s.Halyard.Exposure, NoDNS: s.Halyard.NoDNS}
-	if !e.HalyardFor(ctx, s.AccountID) {
-		s.Halyard = model.HalyardLink{}
-	}
-	if !validExposure(s.Halyard.Exposure) {
-		return CreateResult{}, fmt.Errorf("unknown exposure %q", s.Halyard.Exposure)
-	}
 	s.SFTP.PasswordSet = false
 	s.TLS = model.SiteTLS{}
 	if s.TLSMode == model.TLSModeLocal && !s.HTTPS {
@@ -160,7 +152,6 @@ func (e *Engine) CreateSite(ctx context.Context, req CreateRequest, author strin
 		}
 		_ = e.Store.SaveSite(ctx, cur)
 		if err == nil {
-			e.syncHalyard(ctx, &cur, logf)
 			e.siteChanged(ctx, nil, &cur, logf)
 			e.firstCert(ctx, cur, logf)
 		}
@@ -249,7 +240,6 @@ func (e *Engine) RetryProvision(ctx context.Context, name string) (int64, string
 		}
 		_ = e.Store.SaveSite(ctx, cur)
 		if err == nil {
-			e.syncHalyard(ctx, &cur, logf)
 			e.siteChanged(ctx, nil, &cur, logf)
 			e.firstCert(ctx, cur, logf)
 		}
@@ -313,20 +303,10 @@ func (e *Engine) UpdateSite(ctx context.Context, in model.Site, replaceURLs bool
 	}
 	var jobID int64
 	urlChanged := cur.URL() != next.URL()
-	hostsChanged := strings.Join(cur.Hostnames(), ",") != strings.Join(next.Hostnames(), ",") || cur.HTTPS != next.HTTPS
-	if (urlChanged && replaceURLs && next.Type == model.TypeWordPress && next.Status == model.StatusActive) || (hostsChanged && next.Halyard.Enabled) {
+	if urlChanged && replaceURLs && next.Type == model.TypeWordPress && next.Status == model.StatusActive {
 		oldURL := cur.URL()
 		jobID, _ = e.StartJob(next.Name, "update", "Update "+next.Domain, func(ctx context.Context, logf Logf) error {
-			if urlChanged && replaceURLs && next.Type == model.TypeWordPress {
-				if err := e.WPReplaceURL(ctx, next, oldURL, logf); err != nil {
-					return err
-				}
-			}
-			if hostsChanged && next.Halyard.Enabled {
-				s, _ := e.Store.Site(ctx, next.Name)
-				e.syncHalyard(ctx, &s, logf)
-			}
-			return nil
+			return e.WPReplaceURL(ctx, next, oldURL, logf)
 		})
 	}
 	return next, jobID, nil
@@ -360,7 +340,6 @@ func (e *Engine) DeleteSite(ctx context.Context, name string, finalBackup bool, 
 				logf("Final backup: %s", b.File)
 			}
 		}
-		_ = e.unlinkHalyard(ctx, &s, logf)
 		if prev == model.StatusActive || prev == model.StatusError {
 			e.siteChanged(ctx, &s, nil, logf)
 		}

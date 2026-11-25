@@ -50,8 +50,6 @@ type Engine struct {
 	Log     *slog.Logger
 	Run     *sys.Runner
 	Version string
-	// HalyardHTTP overrides the HTTP client used to call Halyard (tests).
-	HalyardHTTP *http.Client
 	// S3Transport and S3Insecure point off-site backups at a test server.
 	S3Transport http.RoundTripper
 	S3Insecure  bool
@@ -77,12 +75,11 @@ type Engine struct {
 	upgrade upgradeState
 	remote  remoteCache
 
-	healthFixed atomic.Bool
-	index       indexCache
-	phpUp       phpUpdateState
-	vulns       vulnState
-	traffic     trafficState
-	res         resourceState
+	index   indexCache
+	phpUp   phpUpdateState
+	vulns   vulnState
+	traffic trafficState
+	res     resourceState
 }
 
 // New creates an engine.
@@ -175,7 +172,6 @@ var lockLabels = map[string]string{
 	"Backup": "a backup", "Restore": "a restore", "RestoreFiles": "a file restore",
 	"CreateSite": "site creation", "RetryProvision": "site creation", "DeleteSite": "a delete",
 	"UpdateSite": "a settings change", "EnsureCert": "a certificate request",
-	"LinkHalyard": "a Halyard change", "UnlinkHalyard": "a Halyard change",
 	"SetDBPassword": "a database password change", "ApplyPlanLimits": "plan limits",
 }
 

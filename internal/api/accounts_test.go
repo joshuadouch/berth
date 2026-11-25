@@ -35,7 +35,7 @@ func TestCustomerAccounts(t *testing.T) {
 		t.Fatalf("customer login: %d %v", code, out)
 	}
 	// Customers cannot reach server-level endpoints.
-	for _, p := range []string{"/api/system", "/api/plugins", "/api/accounts", "/api/halyard", "/api/resources"} {
+	for _, p := range []string{"/api/system", "/api/plugins", "/api/accounts", "/api/resources"} {
 		if code, _ := cust.do("GET", p, nil, true); code != 403 {
 			t.Errorf("GET %s as customer: %d", p, code)
 		}
@@ -55,13 +55,13 @@ func TestCustomerAccounts(t *testing.T) {
 
 	// A customer's new site belongs to them, without server-level options.
 	mine := map[string]any{"type": "php", "domain": "acme.test", "php_version": "8.3", "enabled": true, "max_children": 50,
-		"nginx_custom": "location /x { alias /etc/; }", "halyard": map[string]any{"enabled": true}}
+		"nginx_custom": "location /x { alias /etc/; }"}
 	code, out = cust.do("POST", "/api/sites", mine, true)
 	if code != 200 {
 		t.Fatalf("customer site: %d %v", code, out)
 	}
 	s := out["site"].(map[string]any)
-	if s["account_id"] != acct || s["nginx_custom"] != nil || s["halyard"].(map[string]any)["enabled"] != false || s["max_children"].(float64) == 50 {
+	if s["account_id"] != acct || s["nginx_custom"] != nil || s["max_children"].(float64) == 50 {
 		t.Fatalf("customer site kept admin options: %v", s)
 	}
 	sites, _ := st.Sites(context.Background())
@@ -135,7 +135,7 @@ func TestMigrateAccounts(t *testing.T) {
 }
 
 func TestPerAccountPlugins(t *testing.T) {
-	ts, st := testServer(t)
+	ts, _ := testServer(t)
 	admin := &client{t: t, ts: ts}
 	admin.do("POST", "/api/setup", map[string]string{"username": "josh", "email": "josh@example.com", "password": "correct horse battery"}, false)
 	_, me := admin.do("GET", "/api/me", nil, true)
@@ -143,42 +143,21 @@ func TestPerAccountPlugins(t *testing.T) {
 	_, out := admin.do("POST", "/api/accounts", map[string]any{"name": "Acme", "user": map[string]string{"username": "acme", "password": "acme acme acme 1"}}, true)
 	acct := out["id"].(string)
 
-	if code, out := admin.do("PUT", "/api/plugins/halyard", map[string]any{"enabled": true, "config": map[string]any{}}, true); code != 200 {
-		t.Fatalf("enable halyard: %d %v", code, out)
-	}
-	// Halyard is never for customers; Cloudflare is (with their own token).
-	if code, _ := admin.do("PUT", "/api/plugins/halyard/accounts", map[string]any{"accounts": []string{acct}}, true); code != 400 {
-		t.Errorf("halyard for a customer account: %d", code)
-	}
+	// Cloudflare is for customers too (with their own token).
 	if code, _ := admin.do("PUT", "/api/plugins/cloudflare/accounts", map[string]any{"accounts": []string{acct}}, true); code != 200 {
 		t.Errorf("cloudflare for a customer account: %d", code)
-	}
-	if code, out := admin.do("PUT", "/api/plugins/halyard/accounts", map[string]any{"accounts": []string{own}}, true); code != 200 {
-		t.Fatalf("halyard for own account: %d %v", code, out)
 	}
 	if code, _ := admin.do("PUT", "/api/plugins/mailcow/accounts", map[string]any{"accounts": []string{own}}, true); code != 400 {
 		t.Errorf("server-wide plugin took accounts: %d", code)
 	}
 
-	admin.do("POST", "/api/sites", map[string]any{"type": "php", "domain": "mine.test", "php_version": "8.3", "enabled": true,
-		"halyard": map[string]any{"enabled": true}}, true)
+	admin.do("POST", "/api/sites", map[string]any{"type": "php", "domain": "mine.test", "php_version": "8.3", "enabled": true}, true)
 	admin.do("POST", "/api/sites", map[string]any{"type": "php", "domain": "theirs.test", "php_version": "8.3", "enabled": true,
-		"account_id": acct, "halyard": map[string]any{"enabled": true}}, true)
-	mine, _ := st.Site(context.Background(), "minetest")
-	theirs, _ := st.Site(context.Background(), "theirstest")
-	if !mine.Halyard.Enabled || theirs.Halyard.Enabled {
-		t.Fatalf("halyard link mine=%v theirs=%v", mine.Halyard.Enabled, theirs.Halyard.Enabled)
-	}
-	if _, out := admin.do("GET", "/api/sites/theirstest", nil, true); out["halyard"] != false {
-		t.Errorf("customer site offers halyard: %v", out["halyard"])
-	}
-	if code, _ := admin.do("POST", "/api/sites/theirstest/halyard", map[string]any{}, true); code != 400 {
-		t.Errorf("published a customer site on halyard: %d", code)
-	}
+		"account_id": acct}, true)
 
 	cust := &client{t: t, ts: ts}
 	cust.do("POST", "/api/login", map[string]string{"username": "acme", "password": "acme acme acme 1"}, false)
-	for _, id := range []string{"mailcow", "cloudflare", "halyard"} {
+	for _, id := range []string{"mailcow", "cloudflare"} {
 		if code, _ := cust.do("GET", "/api/p/"+id+"/", nil, true); code != 404 {
 			t.Errorf("customer reached plugin %s: %d", id, code)
 		}

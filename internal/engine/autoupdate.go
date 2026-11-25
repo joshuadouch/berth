@@ -44,7 +44,7 @@ func (e *Engine) localBase() string {
 }
 
 // SiteHealth requests a path of the site from the local nginx, as a visitor
-// coming through Halyard would.
+// coming through a proxy in front would.
 func (e *Engine) SiteHealth(ctx context.Context, s model.Site, path string) Health {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

@@ -14,7 +14,6 @@ import (
 // Comments Cloudflare records carry so each program knows its own.
 const (
 	ManagedComment = "managed by berth"
-	HalyardComment = "managed by halyard"
 	acmeComment    = "berth acme challenge"
 )
 
@@ -82,15 +81,14 @@ const (
 type Want struct {
 	IPv4, IPv6 string
 	Proxied    bool
-	// Adopt replaces records Berth did not create. Records Halyard created
-	// are always taken over, since the site has left Halyard.
+	// Adopt replaces records Berth did not create.
 	Adopt bool
 }
 
 func addrRecord(r Record) bool { return r.Type == "A" || r.Type == "AAAA" || r.Type == "CNAME" }
 
-// Ensure makes name's A and AAAA records point at this server, taking over
-// Halyard's records in place (so visitors never see a gap) and leaving
+// Ensure makes name's A and AAAA records point at this server, updating
+// records in place where it can (so visitors never see a gap) and leaving
 // records someone else made alone unless w.Adopt.
 func (c *Client) Ensure(ctx context.Context, name string, w Want) RecordState {
 	st := RecordState{Name: name, Proxied: w.Proxied}
@@ -121,7 +119,7 @@ func (c *Client) Ensure(ctx context.Context, name string, w Want) RecordState {
 			continue
 		}
 		switch {
-		case r.Comment == ManagedComment, r.Comment == HalyardComment, w.Adopt:
+		case r.Comment == ManagedComment, w.Adopt:
 			mine = append(mine, r)
 		default:
 			st.Status = StateConflict

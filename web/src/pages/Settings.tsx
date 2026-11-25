@@ -1,60 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { APIToken, del, exposureLabel, get, HalyardInfo, post, put, putFile, Settings as S, SiteRow, vipLabel } from '../api';
-import { Badge, BrandMark, Chips, Copyable, ErrorBox, Field, JobView, Loading, Modal, Toggle, useLoad, useToast } from '../ui';
+import { APIToken, del, get, post, put, putFile, Settings as S } from '../api';
+import { Badge, BrandMark, Chips, Copyable, ErrorBox, Field, Loading, Toggle, useLoad, useToast } from '../ui';
 import type { Me } from '../me';
 
-interface SettingsView { settings: S; halyard_token_set: boolean; s3_secret_set: boolean; s3_error: string; installed_php: string[]; php_versions: string[] }
-
-// HalyardPage is the Halyard plugin's page: the connection to the load
-// balancer and the defaults for publishing sites.
-export function HalyardPage() {
-  const { data, error, reload } = useLoad(() => get<SettingsView>('/settings'));
-  const [f, setF] = useState<S | null>(null);
-  const [err, setErr] = useState<unknown>(null);
-  const [busy, setBusy] = useState(false);
-  const toast = useToast();
-  useEffect(() => { if (data) setF(data.settings); }, [data]);
-  if (!data || !f) return error ? <ErrorBox error={error} /> : <Loading />;
-  const set = (p: Partial<S>) => setF({ ...f, ...p });
-  const save = async () => {
-    setErr(null); setBusy(true);
-    try { await put('/settings', f); toast('Halyard settings saved'); reload(); } catch (e) { setErr(e); } finally { setBusy(false); }
-  };
-  return (
-    <>
-      <div className="head"><div><h1>Halyard</h1><div className="sub">Publish sites on your load balancer. Only sites of the accounts this plugin is on for (see <Link to="/plugins">Plugins</Link>) can be published.</div></div>
-        <button className="btn p" disabled={busy} onClick={save}>Save</button></div>
-      <ErrorBox error={err} />
-      <div style={{ maxWidth: 860 }} className="stack">
-        <MoveOffCard />
-        <HalyardCard f={f} set={set} tokenSet={data.halyard_token_set} saved={data.settings} onSaved={reload} />
-      </div>
-    </>
-  );
-}
-
-// MoveOffCard moves every site published on Halyard to being served by
-// Berth directly.
-function MoveOffCard() {
-  const sites = useLoad(() => get<SiteRow[]>('/sites'));
-  const [job, setJob] = useState<number | null>(null);
-  const toast = useToast();
-  const list = sites.data ?? [];
-  const on = list.filter((s) => s.halyard.enabled);
-  const moving = list.filter((s) => !s.halyard.enabled && s.halyard.host_id);
-  if (!sites.data || (on.length === 0 && moving.length === 0)) return null;
-  const start = () => confirm(`Move ${on.length} site${on.length === 1 ? '' : 's'} to Berth? For each one Berth gets its own certificate, serves it directly and points its DNS here (with the Cloudflare plugin). Halyard keeps answering until the switch is done, so visitors see no gap. A site whose certificate fails stays on Halyard.`)
-    && post<{ job_id: number }>('/halyard/move-all').then((r) => setJob(r.job_id)).catch((e) => toast(e.message, true));
-  return (
-    <div className="card"><div className="ch"><h3>Serve sites from Berth</h3>{on.length > 0 && <button className="btn s p" onClick={start}>Move all sites to Berth</button>}</div><div className="cb">
-      <p className="muted">{on.length > 0 ? `${on.length} site${on.length === 1 ? ' is' : 's are'} published on Halyard.` : 'No sites are published on Halyard any more.'}
-        {moving.length > 0 && ` ${moving.length} ${moving.length === 1 ? 'has' : 'have'} moved and still ${moving.length === 1 ? 'has its' : 'have their'} Halyard host until the switch-over finishes.`}</p>
-      <p className="dim" style={{ fontSize: 12.5, marginBottom: 0 }}>Before you start: set this server's public address under Settings → Customers, make sure ports 80 and 443 on it reach this server, and turn on "Manage DNS records for sites" in the Cloudflare plugin with a token that can edit DNS. Once every site has moved you can turn this plugin off.</p>
-      {job !== null && <Modal title="Moving sites to Berth" onClose={() => { setJob(null); sites.reload(); }}><JobView id={job} onDone={sites.reload} /></Modal>}
-    </div></div>
-  );
-}
+interface SettingsView { settings: S; s3_secret_set: boolean; s3_error: string; installed_php: string[]; php_versions: string[] }
 
 export default function Settings({ me }: { me: Me }) {
   const { data, error, reload } = useLoad(() => get<SettingsView>('/settings'));
@@ -71,18 +21,18 @@ export default function Settings({ me }: { me: Me }) {
   };
   return (
     <>
-      <div className="head"><div><h1>Settings</h1><div className="sub">How sites sit behind your load balancer, defaults for new sites, backups and your account.</div></div>
+      <div className="head"><div><h1>Settings</h1><div className="sub">Defaults for new sites, backups, a proxy in front if you use one, and your account.</div></div>
         <button className="btn p" disabled={busy} onClick={save}>Save settings</button></div>
       <ErrorBox error={err} />
       <div className="grid2" style={{ alignItems: 'start' }}>
         <div className="stack">
-          <div className="card"><div className="ch"><h3>Behind the load balancer</h3></div><div className="cb">
-            <Field label="Trusted proxies" help="Your Halyard nodes' addresses (or their subnet). Only these may tell sites the visitor's IP (X-Real-IP) and that the visitor used HTTPS (X-Forwarded-Proto). Anyone else's headers are ignored.">
+          <div className="card"><div className="ch"><h3>Proxy in front (optional)</h3></div><div className="cb">
+            <Field label="Trusted proxies" help="Addresses (or a subnet) of a load balancer or reverse proxy in front of this server, if you use one. Only these may tell sites the visitor's IP (X-Real-IP) and that the visitor used HTTPS (X-Forwarded-Proto). Anyone else's headers are ignored.">
               <Chips values={f.trusted_proxies ?? []} onChange={(v) => set({ trusted_proxies: v })} placeholder="10.0.30.11 or 10.0.30.0/24" mono />
             </Field>
-            <Toggle on={f.proxy_only} onChange={(v) => set({ proxy_only: v })} label="Refuse visitors that skip the load balancer" help="Sites answer 403 unless the request comes from a trusted proxy (or this machine)." />
+            <Toggle on={f.proxy_only} onChange={(v) => set({ proxy_only: v })} label="Refuse visitors that skip the proxy" help="Sites that do not serve HTTPS themselves answer 403 unless the request comes from a trusted proxy (or this machine)." />
           </div></div>
-          <div className="note">Halyard and Cloudflare are plugins now: set them up on the <Link to="/plugins">Plugins</Link> page and choose the accounts they are on for.</div>
+          <div className="note">Cloudflare is a plugin: set it up on the <Link to="/plugins">Plugins</Link> page.</div>
           <div className="card"><div className="ch"><h3>New sites</h3></div><div className="cb">
             <Field label="Default PHP version"><select className="input" value={f.default_php} onChange={(e) => set({ default_php: e.target.value })}>
               {data.php_versions.map((v) => <option key={v} value={v} disabled={!data.installed_php.includes(v)}>PHP {v}{data.installed_php.includes(v) ? '' : ' (not installed)'}</option>)}</select></Field>
@@ -272,66 +222,6 @@ export function AccountCard({ me }: { me: Me }) {
         <button className="btn danger" onClick={go(() => post('/me/totp/disable', { code }).then(() => { setTotpOn(false); setCode(''); }), 'Two-factor is off')}>Turn off</button>
       </>}
       {me.user.role === 'admin' && <small className="help">Locked out? Run <span className="mono">berth passwd</span> in the container.</small>}
-    </div></div>
-  );
-}
-
-function HalyardCard({ f, set, tokenSet, saved, onSaved }: { f: S; set: (p: Partial<S>) => void; tokenSet: boolean; saved: S; onSaved: () => void }) {
-  const h = f.halyard;
-  const seth = (p: Partial<S['halyard']>) => set({ halyard: { ...h, ...p } });
-  const { data: info, reload } = useLoad(() => get<HalyardInfo>('/halyard'), [saved]);
-  const [err, setErr] = useState<unknown>(null);
-  const [addr, setAddr] = useState('');
-  const toast = useToast();
-  const connected = !!saved.halyard.url && tokenSet;
-  const createPool = async () => {
-    setErr(null);
-    try {
-      const p = await post<{ id: string; name: string }>('/halyard/pool', { address: addr });
-      toast(`Created pool ${p.name} on Halyard`); seth({ pool_id: p.id }); onSaved(); reload();
-    } catch (e) { setErr(e); }
-  };
-  return (
-    <div className="card"><div className="ch"><h3>Halyard</h3>
-      {!connected ? <Badge kind="n">Not connected</Badge> : info?.error ? <Badge kind="b">Error</Badge> : info?.configured ? <Badge kind="g">Connected</Badge> : null}</div><div className="cb">
-      <p className="muted" style={{ marginBottom: 12 }}>Connect Halyard and Berth adds a host on it for each site you publish, with a certificate when the site uses HTTPS. Create an API token on Halyard's Settings page.</p>
-      <div className="grid2">
-        <Field label="Halyard URL"><input className="input mono" value={h.url} onChange={(e) => seth({ url: e.target.value })} placeholder="https://10.0.30.11:8443" /></Field>
-        <Field label="API token"><input className="input mono" type="password" value={h.token ?? ''} onChange={(e) => seth({ token: e.target.value })} placeholder={tokenSet ? 'saved (leave blank to keep)' : 'hlt_...'} /></Field>
-      </div>
-      <Toggle on={h.insecure} onChange={(v) => seth({ insecure: v })} label="Accept Halyard's self-signed certificate" help="Turn on when the URL is Halyard's own address rather than a name with a trusted certificate." />
-      {info?.error && <div className="err" style={{ marginBottom: 12 }}>{info.error}</div>}
-      {connected && info?.configured && !info.error && <>
-        <Field label="Pool for this server" help="Every site's host sends traffic here. The pool health-checks /berth-health on port 80.">
-          <select className="input" value={h.pool_id} onChange={(e) => seth({ pool_id: e.target.value })}>
-            <option value="">Choose a pool</option>
-            {info.pools.map((p) => <option key={p.id} value={p.id}>{p.name}{p.members?.length ? ` (${p.members.map((m) => m.address).join(', ')})` : ''}</option>)}
-          </select>
-        </Field>
-        {!h.pool_id && <div className="note">
-          <div style={{ marginBottom: 8 }}>No pool yet? Berth can create one that points at this server.</div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input className="input mono" value={addr} onChange={(e) => setAddr(e.target.value)} placeholder={info.local_addr ? `${info.local_addr}:80` : '10.0.30.20:80'} />
-            <button className="btn" onClick={createPool}>Create pool</button>
-          </div>
-        </div>}
-        <div className="grid2">
-          <Field label="Default VIP"><select className="input" value={h.vip_id} onChange={(e) => seth({ vip_id: e.target.value })}>
-            <option value="">Choose a VIP</option>
-            {info.vips.map((v) => <option key={v.id} value={v.id}>{vipLabel(v)}</option>)}</select></Field>
-          <Field label="Default exposure"><select className="input" value={h.exposure || 'public'} onChange={(e) => seth({ exposure: e.target.value })}>
-            {Object.entries(exposureLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
-        </div>
-        <Toggle on={!h.no_dns} onChange={(v) => seth({ no_dns: !v })} label="Manage DNS in Cloudflare" help="Halyard creates each site's records. Public and tunnel sites are proxied (orange cloud); LAN sites get a plain record to the VIP." />
-        {!h.no_dns && info.cloudflare && !info.cloudflare.token_set && <div className="warnbox">Halyard has no Cloudflare API token yet, so it cannot create DNS records or certificates. Add one on Halyard's Cloudflare page.</div>}
-        {!h.no_dns && info.cloudflare?.token_set && h.exposure === 'public' && !info.cloudflare.public_ip && <div className="warnbox">Set your public IP on Halyard's Cloudflare page; proxied records for public sites point at it.</div>}
-        {!h.no_dns && info.cloudflare?.token_set && h.exposure === 'tunnel' && !info.cloudflare.tunnel_id && <div className="warnbox">Halyard has no Cloudflare Tunnel yet. Create one on its Cloudflare page.</div>}
-        <Toggle on={h.auto_cert} onChange={(v) => seth({ auto_cert: v })} label="Request a certificate for HTTPS sites" help="Halyard issues one through Cloudflare DNS unless an existing certificate (a wildcard, say) already covers the site." />
-      </>}
-      {connected && !info && <Loading />}
-      {!connected && <div className="note" style={{ marginBottom: 0 }}>Save the URL and token, then choose the pool and VIP here.</div>}
-      <ErrorBox error={err} />
-      <div className="note" style={{ marginBottom: 0, marginTop: 12 }}>Add Halyard's node addresses as trusted proxies on the <Link to="/settings">Settings</Link> page too, so sites see visitors' real addresses.</div>
     </div></div>
   );
 }

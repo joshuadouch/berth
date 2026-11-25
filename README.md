@@ -1,7 +1,6 @@
 # Berth
 
-A small hosting control panel for your own WordPress and PHP sites, built to
-sit behind [Halyard](https://github.com/joshuadouch/halyard). Berth is a single
+A small hosting control panel for WordPress and PHP sites. Berth is a single
 Go binary with a web UI. It drives **nginx**, **PHP-FPM** (several versions side
 by side, from packages.sury.org), **MariaDB** and **WP-CLI** on one Debian
 machine.
@@ -9,8 +8,7 @@ machine.
 Berth also does shared hosting. Every site belongs to an **account**. The
 first login is an admin who runs the server; admins add customer accounts on
 the Accounts page, each with its own logins. Customers only see their own
-sites, backups and activity, and never the server's settings, plugins, Halyard
-or Cloudflare. Admins see every account and can move a site between them.
+sites, backups and activity, and never the server's settings or plugins. Admins see every account and can move a site between them.
 Panels from before accounts existed are moved to one account owned by the
 existing admin on the first start.
 
@@ -115,7 +113,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/joshuadouch/berth/main/c
 ```
 
 The script asks for the container ID, size, bridge and address (a fixed address
-is best, since Halyard points at it), the first PHP version, and optionally a
+is best, since DNS points at it), the first PHP version, and optionally a
 folder on the Proxmox host to keep backups in. That folder is bind-mounted at
 `/var/backups/berth`; an unprivileged container writes to it as uid 100000, so
 give that user write access. Every prompt can be preset with an environment
@@ -151,81 +149,24 @@ error is on the site's Overview, where **Request now** tries again at once.
 Settings has the contact email, Let's Encrypt's staging server for testing,
 and a switch to stop requests. Certificates live in `/var/lib/berth/certs`.
 
-Sites published on Halyard (and admin sites set to **HTTPS (Halyard or
-Cloudflare in front ends it)**) keep the setup below: plain HTTP on port 80,
-with the proxy ending TLS.
+Admin sites set to **HTTPS (a proxy or Cloudflare Tunnel in front ends it)**
+keep plain HTTP on port 80, with whatever is in front ending TLS.
 
-## Behind Halyard
+## Behind a proxy (optional)
 
-Sites listen on plain HTTP port 80. Halyard terminates TLS and owns the
-certificates.
+Sites can also sit behind a load balancer or reverse proxy that ends TLS. Point
+it at this server on port 80 (an HTTP health check can use `/berth-health`),
+then add its addresses (or their subnet) as **trusted proxies** under
+**Settings**. Trusted proxies may tell sites two things, and nobody else can:
 
-1. In Halyard, add a pool with this server's address on port 80. Use an HTTP
-   health check on `/berth-health`.
-2. For each site, add a Halyard host with its domains pointing at that pool.
-3. In Berth, open **Settings** and add your Halyard nodes (or their subnet) as
-   **trusted proxies**.
-
-Trusted proxies may tell sites two things, and nobody else can:
-
-- **The visitor's address.** Halyard sends `X-Real-IP` (already restored from
-  `CF-Connecting-IP` for Cloudflare traffic), and nginx uses it as the client
-  address, so PHP, WordPress and the access logs see the real visitor.
-- **HTTPS.** When Halyard sends `X-Forwarded-Proto: https`, nginx gives PHP
+- **The visitor's address.** The proxy sends `X-Real-IP`, and nginx uses it as
+  the client address, so PHP, WordPress and the access logs see the real
+  visitor.
+- **HTTPS.** When the proxy sends `X-Forwarded-Proto: https`, nginx gives PHP
   `HTTPS=on`, port 443 and the `https` scheme. WordPress builds `https://`
   links and never loops on redirects, with no plugin or `wp-config.php` change.
-
-### Publishing sites on Halyard automatically
-
-Berth can create each site's Halyard host for you.
-
-1. In Halyard, open **Settings → API tokens** and create a token.
-2. In Berth, open **Settings → Halyard**, enter Halyard's URL (for example
-   `https://10.0.30.11:8443`, with **Accept Halyard's self-signed certificate**
-   on) and the token, and save.
-3. Choose the pool for this server, or press **Create pool** to add one that
-   points at this machine on port 80 with a `/berth-health` check. Pick a
-   default VIP and exposure, and whether HTTPS sites get a certificate.
-
-New sites then have a **Publish on Halyard** option, and existing sites have a
-Halyard card on their Overview tab. Berth keeps the host's domains, VIP,
-exposure and HTTPS in step with the site, and leaves anything else you change on
-Halyard (HSTS, allow lists, extra routes) alone. DNS is managed by default:
-public and tunnel sites get proxied (orange cloud) Cloudflare records, and LAN
-sites get a plain record pointing at the VIP. Halyard needs its Cloudflare API
-token (and, for public sites, your public IP) set on its Cloudflare page. When an HTTPS site's domains are
-not covered by an existing certificate (a wildcard, say), Berth asks Halyard to
-issue one. Deleting a site, or pressing **Remove from Halyard**, deletes its host
-and the certificate Berth requested once nothing else uses it.
-
-Moving a site from another server that Halyard already fronts? If a Halyard
-host serves exactly the site's domains (the main one and its other domains, in
-any order), Berth takes that host over: it points the default route at Berth's
-pool and keeps the host's VIP, exposure, DNS, certificate and other routes, so
-the switch is just the backend. If a host shares only some of the domains, or
-serves others too, publishing stops with an error naming them, so another site
-is never moved by accident.
-
-### Moving sites off Halyard
-
-To serve sites from Berth directly instead (Berth ends HTTPS with its own Let's
-Encrypt certificates):
-
-1. Under **Settings → Customers**, set this server's public IPv4 (and IPv6), and
-   make sure ports 80 and 443 on it reach this server.
-2. Give the Cloudflare plugin's API token **Zone → Zone → Read** and **Zone →
-   DNS → Edit** too, and turn on **Manage DNS records for sites**.
-3. Press **Move to Berth** on a site's Halyard card, or **Move all sites to
-   Berth** on the Halyard page.
-
-For each site Berth switches to serving HTTPS itself while still answering
-Halyard (plain HTTP with `X-Forwarded-Proto: https` from a trusted proxy is
-served, not redirected), gets a certificate through Cloudflare DNS (or over HTTP
-through Halyard), then rewrites the Halyard-made Cloudflare records in place to
-point at this server. Halyard's host is removed 15 minutes later. Visitors see
-no gap. If the certificate cannot be had, the site goes back to Halyard as it
-was. Without the Cloudflare plugin, point DNS yourself and press **Remove from
-Halyard now**. When no site is left on Halyard, turn its plugin off.
+  Sites with their own certificate answer such requests too instead of
+  redirecting them.
 
 ### Off-site backups
 
@@ -237,8 +178,8 @@ bucket page (such as `s3.eu-central-003.backblazeb2.com`, region
 Every backup is then copied to `<folder>/<site>/` in the bucket. Restoring or
 browsing a backup that is only off-site downloads it first.
 
-Turn on **Refuse visitors that skip the load balancer** to answer 403 to any
-request that does not come from a trusted proxy.
+Turn on **Refuse visitors that skip the proxy** to answer 403 to any request
+for a site without its own certificate that does not come from a trusted proxy.
 
 ## Monitoring and analytics
 
@@ -248,13 +189,14 @@ request that does not come from a trusted proxy.
   request still running after 5 seconds.
 - Berth turns on MariaDB's slow query log (`/var/log/mysql/mariadb-slow.log`,
   queries of a second or more) and checks every hour that it is still on.
-- Uptime checks use each site's public address, so they test DNS, Halyard and
+- Uptime checks use each site's public address, so they test DNS and
   Cloudflare too. When a check fails but the site answers locally, the outage
   says so. Turn checks off per site on its Settings tab, or for every site in
   **Settings → Monitoring and Cloudflare**.
 - History is kept for 30 days (uptime and hourly traffic for 90).
 - **Clear cache** needs a Cloudflare API token with **Zone → Zone → Read** and
-  **Zone → Cache Purge → Purge**, saved in **Settings → Monitoring and Cloudflare**.
+  **Zone → Cache Purge → Purge**, saved in the Cloudflare plugin
+  (customers paste their own on the Cloudflare page).
 
 ## Sites on disk
 
@@ -367,8 +309,8 @@ for customers who keep their DNS elsewhere.
 When a customer makes a site on a domain that isn't hosted here yet, Berth adds
 the domain as a zone (within their plan) with the site's records already in it,
 and the new-site page tells them which nameservers to set at their registrar.
-Switch this off with **Add a zone for new sites**. The admin's own sites and
-sites published on Halyard are left alone.
+Switch this off with **Add a zone for new sites**. The admin's own sites are
+left alone.
 
 #### Setting up the nameservers
 

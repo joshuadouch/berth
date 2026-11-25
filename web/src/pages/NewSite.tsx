@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMe } from '../me';
-import { AccountView, PluginView, bytes, del, exposureLabel, get, HalyardInfo, Job, nameFromDomain, post, Serve, serveFields, serveOf, Settings, Site, SiteType, upload, UploadInfo, vipLabel } from '../api';
+import { AccountView, bytes, del, get, Job, nameFromDomain, post, Serve, serveFields, serveOf, Settings, Site, SiteType, upload, UploadInfo } from '../api';
 import { SiteDNSCard } from './DNS';
 import { Chips, Copyable, ErrorBox, Field, Icon, JobView, Loading, Toggle, useLoad } from '../ui';
 
@@ -34,18 +34,10 @@ export default function NewSite() {
   const [adv, setAdv] = useState(false);
   const { me, isAdmin } = useMe();
   const [sp] = useSearchParams();
-  const hal = useLoad(() => (isAdmin ? get<HalyardInfo>('/halyard') : Promise.resolve(null)));
   const accounts = useLoad(() => (isAdmin ? get<AccountView[]>('/accounts') : Promise.resolve([] as AccountView[])));
   const [account, setAccount] = useState(sp.get('account') || me?.user.account_id || '');
-  const plugins = useLoad(() => (isAdmin ? get<PluginView[]>('/plugins') : Promise.resolve([] as PluginView[])));
-  const halPlugin = plugins.data?.find((p) => p.id === 'halyard');
-  const halyardOn = !!halPlugin?.enabled && halPlugin.accounts.includes(account);
   // The DNS plugin is on for the signed-in customer (admins see the site page).
   const dnsOn = !isAdmin && !!me?.plugins.some((p) => p.id === 'dns');
-  const [publish, setPublish] = useState(true);
-  const [vip, setVip] = useState('');
-  const [exposure, setExposure] = useState('');
-  const [dns, setDns] = useState<boolean | null>(null);
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<Result | null>(null);
@@ -62,9 +54,6 @@ export default function NewSite() {
     setAdminUser((v) => v || s.wp_admin_user);
     setAdminEmail((v) => v || s.wp_admin_email);
     setLocale((v) => v || s.wp_locale);
-    setVip((v) => v || s.halyard.vip_id);
-    setExposure((v) => v || s.halyard.exposure || 'public');
-    setDns((v) => (v === null ? !s.halyard.no_dns : v));
   }, [cfg.data]);
   useEffect(() => {
     if (!nameTouched) setName(domain ? nameFromDomain(domain) : '');
@@ -73,11 +62,7 @@ export default function NewSite() {
   const hasDB = type !== 'php';
   const importing = imp && (!!impFiles || (hasDB && !!impDB));
   const importReady = !imp || (type === 'wordpress' ? !!impFiles && !!impDB : importing);
-  const halyardReady = halyardOn && !!hal.data?.configured && !hal.data.error && hal.data.pool_ok;
-  // Sites published on Halyard leave HTTPS to it; others get a Let's Encrypt certificate.
-  const serveChoice: Serve = serve || (halyardReady && publish ? 'proxy' : 'local');
-  const https = serveChoice !== 'http';
-  const halyardCert = !!cfg.data?.settings.halyard.auto_cert;
+  const serveChoice: Serve = serve || 'local';
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setErr(null);
@@ -88,7 +73,6 @@ export default function NewSite() {
         doc_root: docRoot, front_controller: front, backups, sftp: { enabled: false, keys: [] },
       };
       if (isAdmin && account) body.account_id = account;
-      if (halyardReady && publish) body.halyard = { enabled: true, vip_id: vip, exposure, no_dns: dns === false };
       if (type === 'wordpress') body.wp = importing ? {} : { title: title || domain.trim(), admin_user: adminUser, admin_email: adminEmail, locale };
       if (importing) body.import = { files: impFiles?.id ?? '', files_name: impFiles?.name ?? '', db: hasDB ? impDB?.id ?? '' : '', db_name: hasDB ? impDB?.name ?? '' : '' };
       setRes(await post<Result>('/sites', body));
@@ -116,13 +100,12 @@ export default function NewSite() {
               <Field label="Log in at"><Copyable value={(s.https ? 'https://' : 'http://') + s.domain + '/wp-admin/'} /></Field>
             </div></div>}
             {job && <div className="card"><div className="cb">
-              {job.status === 'ok' ? <p style={{ marginBottom: 12 }}>The site is ready. {res?.site.halyard?.enabled ? <>It is published on Halyard; the site page shows the host's status.</>
-                : isAdmin && serveOf(s) === 'proxy' ? <>Point <b>{s.domain}</b> at Halyard if you have not already.</>
+              {job.status === 'ok' ? <p style={{ marginBottom: 12 }}>The site is ready. {isAdmin && serveOf(s) === 'proxy' ? <>Point <b>{s.domain}</b> at the proxy in front if you have not already.</>
                 : dnsOn ? <>Next, point <b>{s.domain}</b> here; the DNS card below says how.</>
                 : <>Next, point <b>{s.domain}</b> at this server{me?.brand?.ipv4 ? <> with an A record to <b className="mono">{me.brand.ipv4}</b></> : ''}{me?.brand?.ipv6 ? <> and an AAAA record to <b className="mono">{me.brand.ipv6}</b></> : ''}. HTTPS sets itself up once it does.</>}</p> : <p style={{ marginBottom: 12 }}>Something went wrong. The log shows where; you can retry from the site page.</p>}
               <button className="btn p" onClick={() => nav('/sites/' + s.id)}>Open site</button>
             </div></div>}
-            {job?.status === 'ok' && dnsOn && !res?.site.halyard?.enabled && <SiteDNSCard site={s.id} />}
+            {job?.status === 'ok' && dnsOn && <SiteDNSCard site={s.id} />}
           </div>
         </div>
       </>
@@ -176,7 +159,7 @@ export default function NewSite() {
             <Field label="Visitors use">
               <select className="input" value={serveChoice} onChange={(e) => setServe(e.target.value as Serve)}>
                 <option value="local">HTTPS (free Let's Encrypt certificate)</option>
-                {isAdmin && <option value="proxy">HTTPS (Halyard or Cloudflare in front ends it)</option>}
+                {isAdmin && <option value="proxy">HTTPS (a proxy or Cloudflare Tunnel in front ends it)</option>}
                 <option value="http">HTTP only</option>
               </select>
             </Field>
@@ -184,17 +167,6 @@ export default function NewSite() {
           {isAdmin && (accounts.data?.length ?? 0) > 1 && <Field label="Account" help="The customer who owns the site. They see it when they sign in.">
             <select className="input" value={account} onChange={(e) => setAccount(e.target.value)}>
               {accounts.data!.map((a) => <option key={a.id} value={a.id}>{a.name}{a.id === me?.user.account_id ? ' (you)' : ''}</option>)}</select></Field>}
-          {halyardReady && <>
-            <Toggle on={publish} onChange={setPublish} label="Publish on Halyard" help={https && halyardCert ? 'Adds a Halyard host for these domains and requests a certificate if none covers them.' : 'Adds a Halyard host for these domains.'} />
-            {publish && <div className="grid2">
-              <Field label="VIP"><select className="input" value={vip} onChange={(e) => setVip(e.target.value)}>
-                <option value="">Choose a VIP</option>
-                {hal.data!.vips.map((v) => <option key={v.id} value={v.id}>{vipLabel(v)}</option>)}</select></Field>
-              <Field label="Exposure"><select className="input" value={exposure} onChange={(e) => setExposure(e.target.value)}>
-                {Object.entries(exposureLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
-            </div>}
-            {publish && <Toggle on={dns !== false} onChange={setDns} label="Manage DNS in Cloudflare" help={exposure === 'lan' ? 'A plain record pointing at the VIP.' : 'A proxied (orange cloud) record for each domain.'} />}
-          </>}
           {type === 'wordpress' && !imp && <>
             <div className="navlabel" style={{ padding: '6px 0 12px' }}>WordPress</div>
             <Field label="Site title"><input className="input" placeholder={domain || 'My site'} value={title} onChange={(e) => setTitle(e.target.value)} /></Field>

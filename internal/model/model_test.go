@@ -61,11 +61,10 @@ func TestSettingsNormalize(t *testing.T) {
 		t.Fatalf("defaults: %+v", st)
 	}
 	for _, bad := range []Settings{
-		{TrustedProxies: []string{"halyard.lan"}},
+		{TrustedProxies: []string{"proxy.lan"}},
 		{ProxyOnly: true},
 		{BackupTime: "25:00"},
 		{BackupDir: "backups"},
-		{Halyard: HalyardSettings{URL: "10.0.30.11:8443"}},
 	} {
 		if err := bad.Normalize(); err == nil {
 			t.Errorf("expected an error for %+v", bad)

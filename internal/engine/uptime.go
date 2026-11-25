@@ -72,7 +72,7 @@ func (e *Engine) CheckUptime(ctx context.Context, s model.Site) store.Check {
 		c.Error = shortNetErr(err)
 		// Say whether the server itself answers, to tell the two problems apart.
 		if h := e.SiteHealth(ctx, s, "/"); h.OK {
-			c.Error += " (the site works on this server, so the problem is DNS, Halyard or Cloudflare)"
+			c.Error += " (the site works on this server, so the problem is DNS, a proxy in front or Cloudflare)"
 		}
 		return c
 	}

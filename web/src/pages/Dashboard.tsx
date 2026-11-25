@@ -7,7 +7,7 @@ import { Badge, Copyable, ErrorBox, Icon, JobBadge, Loading, StatusBadge, TypeBa
 interface Dash {
   sites: number; counts: Record<string, number>; attention: Site[]; services: Service[]; disks: Disk[];
   backups: number; backup_bytes: number; jobs: Job[]; events: Event[];
-  settings: { backup_enabled: boolean; backup_time: string; trusted_proxies: string[] | null; halyard: boolean };
+  settings: { backup_enabled: boolean; backup_time: string; trusted_proxies: string[] | null };
   traffic: TrafficHour[]; uptime: Record<string, { checks: number; up: number; avg_ms: number }>;
   uptime_state: Record<string, UptimeState>; vulns: Record<string, number>; resources: Metric[]; customer?: boolean; plan?: PlanUsage;
 }
@@ -83,7 +83,6 @@ export default function Dashboard({ me }: { me: string }) {
         ? <div className="err">Your account has used all {bytes(data.plan.plan.disk_mb * 1048576)} of its disk space, so new sites and uploads are blocked. Free some space or <Link to="/account">see your plan</Link>.</div>
         : data.plan.disk_used >= data.plan.plan.disk_mb * 1048576 * 0.9 ? <div className="warnbox">Your account has used {bytes(data.plan.disk_used)} of {bytes(data.plan.plan.disk_mb * 1048576)} disk space.</div> : null : null}
       {down.length > 0 && <div className="err">Not running: {down.map((s) => s.label).join(', ')}. Sites that use them are down.</div>}
-      {!cust && !data.settings.trusted_proxies?.length && <div className="warnbox">No trusted proxies are set, so sites see the load balancer's address instead of the visitor's and cannot tell HTTPS from HTTP. Add your Halyard nodes on the <Link to="/settings">Settings</Link> page.</div>}
       {cust && data.sites === 0 && <GettingStarted />}
       <div className="row" style={{ marginBottom: 16 }}>
         <Link to="/sites" className="card stat mon-tile"><div className="k"><span className="ic violet"><Icon name="site" size={15} /></span>Sites</div><div className="v">{data.sites}</div><div className="d muted">{data.counts.wordpress ?? 0} WordPress · {(data.counts.php_db ?? 0) + (data.counts.php ?? 0)} PHP</div></Link>

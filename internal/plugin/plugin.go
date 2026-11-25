@@ -134,13 +134,6 @@ type DNSChallenger interface {
 	PresentTXT(ctx context.Context, account, fqdn, value string) (cleanup func(), err error)
 }
 
-// DNSKeeper is implemented by plugins that keep sites' DNS records.
-type DNSKeeper interface {
-	// PointsHere reports whether every name of the site has a record the
-	// plugin keeps pointing at this server.
-	PointsHere(ctx context.Context, s model.Site) bool
-}
-
 // Config holds a plugin's settings.
 type Config map[string]any
 
@@ -633,18 +626,6 @@ func (r *Registry) DNSChallenger(ctx context.Context, account, name string) DNSC
 		}
 	}
 	return nil
-}
-
-// PointsHere reports whether an enabled plugin keeps every name of a site
-// pointing at this server.
-func (r *Registry) PointsHere(ctx context.Context, s model.Site) bool {
-	for _, p := range r.plugins {
-		k, ok := p.(DNSKeeper)
-		if ok && r.Enabled(ctx, p.Info().ID) && k.PointsHere(ctx, s) {
-			return true
-		}
-	}
-	return false
 }
 
 // Info returns a plugin's description.

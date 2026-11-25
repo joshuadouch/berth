@@ -40,7 +40,7 @@ func (p *Plugin) Info() plugin.Info {
 		PerAccount:  true,
 		Fields: []plugin.Field{
 			{Key: "token", Label: "API token", Type: plugin.Secret, Section: "Your accounts", Help: "Used for the accounts you choose below. Give it Zone → Zone → Read, Zone → DNS → Edit and Zone → Cache Purge on your zones."},
-			{Key: "dns", Label: "Manage DNS records for sites", Type: plugin.Bool, Section: "DNS", Default: false, Help: "Sites get A and AAAA records pointing at this server's public addresses (Settings → Customers). Records Halyard made are taken over; records anyone else made are left alone until you take them over from the site's page."},
+			{Key: "dns", Label: "Manage DNS records for sites", Type: plugin.Bool, Section: "DNS", Default: false, Help: "Sites get A and AAAA records pointing at this server's public addresses (Settings → Customers). Records Berth did not make are left alone until you take them over from the site's page."},
 			{Key: "proxied", Label: "Proxy through Cloudflare (orange cloud)", Type: plugin.Bool, Section: "DNS", Default: true, Help: "The default for new records. Each site can change it."},
 			{Key: "customers", Label: "Offer to hosting customers", Type: plugin.Bool, Section: "Customers", Default: true, Help: "Customers get a Cloudflare page where they can connect their own Cloudflare account for DNS, certificates and cache clearing."},
 			{Key: "access_team", Label: "Team domain", Type: plugin.Text, Section: "Cloudflare Access sign-in", Placeholder: "example.cloudflareaccess.com", Help: "Publish this panel through Cloudflare Access and admins are signed in by Access instead of a password."},
@@ -146,7 +146,7 @@ func (p *Plugin) want(ctx context.Context, c plugin.Config, sd SiteDNS) (Want, e
 // manages reports whether the plugin keeps a site's records, and the token
 // to do it with.
 func (p *Plugin) manages(ctx context.Context, c plugin.Config, s *model.Site) (string, bool) {
-	if s == nil || s.Halyard.Enabled || !c.Bool("dns") {
+	if s == nil || !c.Bool("dns") {
 		return "", false
 	}
 	tok, _ := p.token(ctx, s.AccountID)
@@ -221,29 +221,6 @@ func (p *Plugin) syncSite(ctx context.Context, c plugin.Config, tok string, s mo
 	return sd
 }
 
-// PointsHere implements plugin.DNSKeeper.
-func (p *Plugin) PointsHere(ctx context.Context, s model.Site) bool {
-	c, err := p.host.Config(ctx)
-	if err != nil {
-		return false
-	}
-	if _, ok := p.manages(ctx, c, &s); !ok {
-		return false
-	}
-	ok := map[string]bool{}
-	for _, r := range p.siteDNS(ctx, s.Name).Records {
-		if r.Status == StateOK {
-			ok[strings.ToLower(r.Name)] = true
-		}
-	}
-	for _, n := range s.Hostnames() {
-		if !ok[strings.ToLower(n)] {
-			return false
-		}
-	}
-	return true
-}
-
 // CanChallenge implements plugin.DNSChallenger.
 func (p *Plugin) CanChallenge(ctx context.Context, account, name string) bool {
 	tok, _ := p.token(ctx, account)
@@ -303,8 +280,7 @@ type SiteView struct {
 	Account   string `json:"account_id"`
 	Connected bool   `json:"connected"` // a token is there for the site's account
 	Managed   bool   `json:"managed"`   // records are kept by the plugin
-	OnHalyard bool   `json:"on_halyard"`
-	DNSOn     bool   `json:"dns_on"` // the admin turned DNS management on
+	DNSOn     bool   `json:"dns_on"`    // the admin turned DNS management on
 	Proxied   bool   `json:"proxied"`
 	SiteDNS
 }
@@ -314,7 +290,7 @@ func (p *Plugin) view(ctx context.Context, c plugin.Config, s model.Site) SiteVi
 	tok, _ := p.token(ctx, s.AccountID)
 	_, managed := p.manages(ctx, c, &s)
 	v := SiteView{Site: s.Name, Domain: s.Domain, Account: s.AccountID, Connected: tok != "", Managed: managed,
-		OnHalyard: s.Halyard.Enabled, DNSOn: c.Bool("dns"), Proxied: c.Bool("proxied"), SiteDNS: sd}
+		DNSOn: c.Bool("dns"), Proxied: c.Bool("proxied"), SiteDNS: sd}
 	if sd.Proxied != nil {
 		v.Proxied = *sd.Proxied
 	}
