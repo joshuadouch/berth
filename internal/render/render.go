@@ -132,11 +132,6 @@ func httpConf(p Paths, st model.Settings, tls bool) string {
 	if tls {
 		w("")
 		w("# HTTPS for sites with their own certificate. Unknown names are refused.")
-		w("ssl_protocols TLSv1.2 TLSv1.3;")
-		w("ssl_prefer_server_ciphers off;")
-		w("ssl_session_cache shared:berth:10m;")
-		w("ssl_session_timeout 1d;")
-		w("ssl_session_tickets off;")
 		w("server {")
 		w("    listen 443 ssl default_server;")
 		if p.IPv6 {
@@ -145,9 +140,22 @@ func httpConf(p Paths, st model.Settings, tls bool) string {
 		w("    server_name _;")
 		w("    access_log off;")
 		w("    ssl_reject_handshake on;")
+		tlsParams(w)
 		w("}")
 	}
 	return b.String()
+}
+
+// tlsParams sets Berth's TLS options in a server block. They live in each
+// server rather than at http level, where distribution nginx.conf files
+// (Debian's among them) already set some of them and nginx refuses a
+// directive twice in one block.
+func tlsParams(w func(string, ...any)) {
+	w("    ssl_protocols TLSv1.2 TLSv1.3;")
+	w("    ssl_prefer_server_ciphers off;")
+	w("    ssl_session_cache shared:berth:10m;")
+	w("    ssl_session_timeout 1d;")
+	w("    ssl_session_tickets off;")
 }
 
 // fastcgiConf replaces Debian's fastcgi_params so HTTPS, the scheme and the
@@ -210,6 +218,7 @@ func Vhost(p Paths, st model.Settings, s model.Site) string {
 			}
 			w("    ssl_certificate %s;", p.CertFile(s.Name))
 			w("    ssl_certificate_key %s;", p.KeyFile(s.Name))
+			tlsParams(w)
 			return
 		}
 		w("    listen 80;")
