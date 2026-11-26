@@ -53,7 +53,7 @@ a{color:var(--accent-ink)}
 .node{display:flex;align-items:center;gap:8px;margin:6px 0}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--good);display:inline-block;flex:none}
 .dot.w{background:var(--warn)} .dot.b{background:var(--bad)} .dot.g{background:var(--dim)} .dot.o{background:var(--orange)}
-.avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#ff8a4c,#d93a12);color:#fff;display:grid;place-items:center;font-weight:700;font-size:12px;flex:none}
+.avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--accent-light,#ff8a4c),var(--accent));color:#fff;display:grid;place-items:center;font-weight:700;font-size:12px;flex:none}
 .siteav{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;color:#fff;font-weight:800;font-size:14px;flex:none;text-transform:uppercase;letter-spacing:-.3px}
 .siteav.s{width:30px;height:30px;border-radius:9px;font-size:12px}
 /* main */
@@ -429,6 +429,6 @@ td.wrap{white-space:normal;min-width:150px}
 .vulnmain a{white-space:nowrap;display:inline-block}
 .brandlogo{display:block;max-height:34px;max-width:100%;min-width:0;flex-shrink:1;object-fit:contain;object-position:left center}
 .side .brand .badge{flex-shrink:0}
-.login .brandlogo{max-height:44px;max-width:240px;background:#14141c;padding:10px 16px;border-radius:12px;box-sizing:content-box}
+.login .brandlogo{max-height:44px;max-width:240px;background:var(--side);padding:10px 16px;border-radius:12px;box-sizing:content-box}
 .brandpreview{display:flex;align-items:center;min-height:58px;padding:12px 14px;border-radius:10px;background:#14141c}
 .brandpreview.fav{background:var(--hover);min-height:58px}

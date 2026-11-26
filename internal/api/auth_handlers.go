@@ -28,9 +28,10 @@ func (s *Server) getSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	team, aud, _ := s.accessSettings(r.Context())
 	st, _ := s.Store.Settings(r.Context())
+	b := brandFor(r, st)
 	writeJSON(w, 200, map[string]any{
-		"needs_setup": n == 0, "version": s.Version, "name": s.Cfg.Name, "brand": st.Brand.Name,
-		"logo": st.Brand.Logo, "favicon": st.Brand.Favicon,
+		"needs_setup": n == 0, "version": s.Version, "name": s.Cfg.Name, "brand": b.Name,
+		"logo": b.Logo, "favicon": b.Favicon, "accent": b.Accent, "sidebar": b.Sidebar,
 		"access_enabled": team != "" && aud != "",
 	})
 }
@@ -143,7 +144,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	a, _ := s.Store.Account(r.Context(), u.AccountID)
 	st, _ := s.Store.Settings(r.Context())
 	out := map[string]any{"user": u, "account": a, "name": s.Cfg.Name, "version": s.Version, "plugins": s.myPlugins(r),
-		"usage": s.planUsage(r.Context(), u.AccountID), "brand": st.Brand}
+		"usage": s.planUsage(r.Context(), u.AccountID), "brand": brandFor(r, st)}
 	if admin, ok := s.impersonator(r); ok {
 		out["impersonator"] = admin.Username
 	}

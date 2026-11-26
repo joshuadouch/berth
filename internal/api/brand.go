@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/joshuadouch/berth/internal/model"
 )
 
 // Admins can replace Berth's logo (the icon and name in the sidebar and on
@@ -52,6 +55,35 @@ func sniffImage(b []byte) string {
 	return ""
 }
 
+// requestHost is the hostname the request reached the panel at, without a port.
+func requestHost(r *http.Request) string {
+	h := r.Host
+	if i := strings.LastIndex(h, ":"); i > 0 && !strings.HasSuffix(h, "]") {
+		h = h[:i]
+	}
+	return strings.ToLower(h)
+}
+
+// brandFor is the brand a request sees: a host brand when the panel was
+// reached at its address, otherwise the main brand. Server addresses and,
+// where the host brand leaves them blank, support details come from the main brand.
+func brandFor(r *http.Request, st model.Settings) model.BrandSettings {
+	host := requestHost(r)
+	for _, b := range st.HostBrands {
+		if b.Host == host {
+			b.IPv4, b.IPv6 = st.Brand.IPv4, st.Brand.IPv6
+			if b.SupportEmail == "" {
+				b.SupportEmail = st.Brand.SupportEmail
+			}
+			if b.SupportURL == "" {
+				b.SupportURL = st.Brand.SupportURL
+			}
+			return b
+		}
+	}
+	return st.Brand
+}
+
 func (s *Server) brandDir() string { return filepath.Join(s.Cfg.DataDir, "brand") }
 
 // brandAsset serves the logo or favicon. Anyone may fetch them: the sign-in
@@ -59,7 +91,17 @@ func (s *Server) brandDir() string { return filepath.Join(s.Cfg.DataDir, "brand"
 func (s *Server) brandAsset(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
 	st, _ := s.Store.Settings(r.Context())
-	name := map[string]string{"logo": st.Brand.Logo, "favicon": st.Brand.Favicon}[kind]
+	br := brandFor(r, st)
+	// ?host= shows another brand's image (the settings page previews them).
+	if h := strings.ToLower(r.URL.Query().Get("host")); h != "" {
+		br = model.BrandSettings{}
+		for _, b := range st.HostBrands {
+			if b.Host == h {
+				br = b
+			}
+		}
+	}
+	name := map[string]string{"logo": br.Logo, "favicon": br.Favicon}[kind]
 	if name == "" || strings.ContainsAny(name, `/\`) {
 		writeErr(w, 404, "not set")
 		return
@@ -113,7 +155,8 @@ func (s *Server) putBrandAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.setBrandAsset(r, kind, name); err != nil {
-		writeErr(w, 500, err.Error())
+		_ = os.Remove(filepath.Join(s.brandDir(), name))
+		writeErr(w, brandErrCode(err), err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{kind: name})
@@ -126,10 +169,19 @@ func (s *Server) deleteBrandAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.setBrandAsset(r, kind, ""); err != nil {
-		writeErr(w, 500, err.Error())
+		writeErr(w, brandErrCode(err), err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+var errNoHostBrand = errors.New("save the brand with that address first")
+
+func brandErrCode(err error) int {
+	if errors.Is(err, errNoHostBrand) {
+		return 400
+	}
+	return 500
 }
 
 // setBrandAsset records the new file and removes the old one.
@@ -138,9 +190,22 @@ func (s *Server) setBrandAsset(r *http.Request, kind, name string) error {
 	if err != nil {
 		return err
 	}
-	old := &st.Brand.Logo
+	// ?host= picks a host brand; without it, the main brand.
+	b := &st.Brand
+	if h := strings.ToLower(r.URL.Query().Get("host")); h != "" {
+		b = nil
+		for i := range st.HostBrands {
+			if st.HostBrands[i].Host == h {
+				b = &st.HostBrands[i]
+			}
+		}
+		if b == nil {
+			return errNoHostBrand
+		}
+	}
+	old := &b.Logo
 	if kind == "favicon" {
-		old = &st.Brand.Favicon
+		old = &b.Favicon
 	}
 	prev := *old
 	*old = name

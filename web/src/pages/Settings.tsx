@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { APIToken, del, get, post, put, putFile, Settings as S } from '../api';
+import { APIToken, BrandSettings, del, get, post, put, putFile, Settings as S } from '../api';
 import { Badge, BrandMark, Chips, Copyable, ErrorBox, Field, Loading, Toggle, useLoad, useToast } from '../ui';
 import type { Me } from '../me';
 
@@ -56,6 +56,7 @@ export default function Settings({ me }: { me: Me }) {
           <MonitoringCard f={f} set={set} />
           <ACMECard f={f} set={set} />
           <BrandCard f={f} set={set} />
+          <HostBrandsCard f={f} set={set} saved={data.settings?.host_brands ?? null} />
           <TokensCard />
           <AccountCard me={me} />
         </div>
@@ -96,8 +97,40 @@ function BrandCard({ f, set }: { f: S; set: (p: Partial<S>) => void }) {
   );
 }
 
+// HostBrandsCard edits brands that live on their own panel address.
+function HostBrandsCard({ f, set, saved }: { f: S; set: (p: Partial<S>) => void; saved: BrandSettings[] | null }) {
+  const list = f.host_brands ?? [];
+  const blank: BrandSettings = { host: '', name: '', support_email: '', support_url: '', ipv4: '', ipv6: '', accent: '', sidebar: '' };
+  const setAt = (i: number, p: Partial<BrandSettings>) => set({ host_brands: list.map((b, j) => (j === i ? { ...b, ...p } : b)) });
+  const isSaved = (h?: string) => !!h && (saved ?? []).some((b) => b.host === h.trim().toLowerCase());
+  return (
+    <div className="card"><div className="ch"><h3>Other brands</h3>
+      <button className="btn sm" onClick={() => set({ host_brands: [...list, blank] })}>Add brand</button></div><div className="cb">
+      <p className="muted" style={{ marginBottom: 12 }}>Sell under another name? Point another address at this server (e.g. controlpanel.purehost.co.uk) and anyone who opens the panel there sees that brand instead. Accounts, sites and sign-ins are shared.</p>
+      {list.length === 0 && <div className="muted">None yet.</div>}
+      {list.map((b, i) => (
+        <div key={i} className="hostbrand" style={{ borderTop: i ? '1px solid var(--line)' : undefined, paddingTop: i ? 14 : 0, marginTop: i ? 14 : 0 }}>
+          <div className="grid2">
+            <Field label="Panel address"><input className="input mono" value={b.host ?? ''} placeholder="controlpanel.example.com" onChange={(e) => setAt(i, { host: e.target.value })} /></Field>
+            <Field label="Panel name"><input className="input" value={b.name} onChange={(e) => setAt(i, { name: e.target.value })} /></Field>
+            <Field label="Support email"><input className="input" value={b.support_email} placeholder="Same as above" onChange={(e) => setAt(i, { support_email: e.target.value })} /></Field>
+            <Field label="Support link"><input className="input" value={b.support_url} placeholder="Same as above" onChange={(e) => setAt(i, { support_url: e.target.value })} /></Field>
+            <Field label="Accent colour" help="Buttons, links and page headers."><div className="row" style={{ gap: 8 }}><input type="color" value={b.accent || '#d93a12'} onChange={(e) => setAt(i, { accent: e.target.value })} /><input className="input mono" value={b.accent ?? ''} placeholder="#1650e0" onChange={(e) => setAt(i, { accent: e.target.value })} /></div></Field>
+            <Field label="Sidebar colour"><div className="row" style={{ gap: 8 }}><input type="color" value={b.sidebar || '#14141c'} onChange={(e) => setAt(i, { sidebar: e.target.value })} /><input className="input mono" value={b.sidebar ?? ''} placeholder="#0a1a3f" onChange={(e) => setAt(i, { sidebar: e.target.value })} /></div></Field>
+          </div>
+          {isSaved(b.host) ? <div className="grid2">
+            <BrandImage kind="logo" host={b.host!.trim().toLowerCase()} value={b.logo} name={b.name} onChange={(v) => setAt(i, { logo: v })} help="Light on dark, about 180 by 32 pixels." />
+            <BrandImage kind="favicon" host={b.host!.trim().toLowerCase()} value={b.favicon} name={b.name} onChange={(v) => setAt(i, { favicon: v })} help="Square, 32 pixels or larger." />
+          </div> : <div className="note">Save settings, then upload this brand's logo and favicon here.</div>}
+          <button className="btn sm" style={{ marginTop: 8 }} onClick={() => set({ host_brands: list.filter((_, j) => j !== i) })}>Remove brand</button>
+        </div>
+      ))}
+    </div></div>
+  );
+}
+
 // BrandImage uploads or removes the logo or favicon. It saves at once.
-function BrandImage({ kind, value, name, onChange, help }: { kind: 'logo' | 'favicon'; value?: string; name: string; onChange: (v: string) => void; help: string }) {
+function BrandImage({ kind, value, name, onChange, help, host }: { kind: 'logo' | 'favicon'; value?: string; name: string; onChange: (v: string) => void; help: string; host?: string }) {
   const toast = useToast();
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -112,19 +145,21 @@ function BrandImage({ kind, value, name, onChange, help }: { kind: 'logo' | 'fav
       toast(v ? label + ' updated' : label + ' removed');
     } catch (e) { setErr(e); } finally { setBusy(false); }
   };
-  const pick = (file?: File) => file && run(async () => (await putFile<Record<string, string>>('/settings/brand/' + kind, file))[kind]);
+  const q = host ? '?host=' + encodeURIComponent(host) : '';
+  const pick = (file?: File) => file && run(async () => (await putFile<Record<string, string>>('/settings/brand/' + kind + q, file))[kind]);
   return (
     <Field label={label} help={help}>
       <ErrorBox error={err} />
       <div className={'brandpreview' + (kind === 'favicon' ? ' fav' : '')}>
-        {kind === 'logo' ? <div className="brand" style={{ padding: 0 }}><BrandMark logo={value} name={name} /></div>
-          : value ? <img src={'/api/brand/favicon?v=' + encodeURIComponent(value)} alt="" width={32} height={32} /> : <span className="muted">Berth's icon</span>}
+        {host && kind === 'logo' ? <div className="brand" style={{ padding: 0 }}>{value ? <img className="brandlogo" src={'/api/brand/logo?host=' + encodeURIComponent(host) + '&v=' + encodeURIComponent(value)} alt={name} /> : <BrandMark name={name} />}</div>
+          : kind === 'logo' ? <div className="brand" style={{ padding: 0 }}><BrandMark logo={value} name={name} /></div>
+          : value ? <img src={'/api/brand/favicon?' + (host ? 'host=' + encodeURIComponent(host) + '&' : '') + 'v=' + encodeURIComponent(value)} alt="" width={32} height={32} /> : <span className="muted">Berth's icon</span>}
       </div>
       <div className="row" style={{ gap: 8, marginTop: 8 }}>
         <button className="btn" disabled={busy} onClick={() => file.current?.click()}>{value ? 'Replace' : 'Upload'}</button>
         <input ref={file} type="file" hidden accept={kind === 'logo' ? 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml' : 'image/png,image/x-icon,image/vnd.microsoft.icon,image/svg+xml,image/gif,.ico'}
             onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
-        {value && <button className="btn" disabled={busy} onClick={() => run(async () => { await del('/settings/brand/' + kind); return ''; })}>Use Berth's</button>}
+        {value && <button className="btn" disabled={busy} onClick={() => run(async () => { await del('/settings/brand/' + kind + q); return ''; })}>Use Berth's</button>}
       </div>
     </Field>
   );

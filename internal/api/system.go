@@ -396,6 +396,15 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	st.CloudflareToken, st.AccessTeam, st.AccessAUD, st.AccessEmails = cur.CloudflareToken, cur.AccessTeam, cur.AccessAUD, cur.AccessEmails
 	// The logo and favicon change through their own upload routes.
 	st.Brand.Logo, st.Brand.Favicon = cur.Brand.Logo, cur.Brand.Favicon
+	for i := range st.HostBrands {
+		st.HostBrands[i].Logo, st.HostBrands[i].Favicon = "", ""
+		h := strings.ToLower(strings.TrimSpace(st.HostBrands[i].Host))
+		for _, c := range cur.HostBrands {
+			if c.Host == h {
+				st.HostBrands[i].Logo, st.HostBrands[i].Favicon = c.Logo, c.Favicon
+			}
+		}
+	}
 	if err := st.Normalize(); err != nil {
 		writeErr(w, 400, err.Error())
 		return

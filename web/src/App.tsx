@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useResponsiveTables } from './responsive';
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { get, PluginView, post, setUnauthorizedHandler, SiteDetail, SiteRow } from './api';
-import { BrandMark, Icon, PageBoundary, SiteAvatar, ToastProvider, useFavicon } from './ui';
+import { BrandMark, Icon, PageBoundary, SiteAvatar, ToastProvider, useFavicon, useBrandTheme } from './ui';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Sites from './pages/Sites';
@@ -113,6 +113,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   useEffect(() => setMenu(false), [loc.pathname]);
   useEffect(() => { document.title = me.brand?.name || 'Berth'; }, [me.brand?.name]);
   useFavicon(me.brand?.favicon);
+  useBrandTheme(me.brand?.accent, me.brand?.sidebar);
   useEffect(() => {
     if (!menu) return;
     const h = (e: KeyboardEvent) => e.key === 'Escape' && setMenu(false);
