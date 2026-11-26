@@ -1,9 +1,9 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { get, post } from '../api';
-import { BrandMark, ErrorBox, Field, useFavicon } from '../ui';
+import { BrandMark, ErrorBox, Field, useBrandTheme, useFavicon } from '../ui';
 
 export default function Login({ onDone }: { onDone: () => void }) {
-  const [setup, setSetup] = useState<{ needs_setup: boolean; name: string; brand: string; logo?: string; favicon?: string; access_enabled: boolean } | null>(null);
+  const [setup, setSetup] = useState<{ needs_setup: boolean; name: string; brand: string; logo?: string; favicon?: string; accent?: string; sidebar?: string; access_enabled: boolean } | null>(null);
   const expired = new URLSearchParams(window.location.search).get('link') === 'expired';
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -16,6 +16,7 @@ export default function Login({ onDone }: { onDone: () => void }) {
 
   useEffect(() => { get('/setup').then(setSetup).catch(setErr); }, []);
   useFavicon(setup?.favicon);
+  useBrandTheme(setup?.accent, setup?.sidebar);
   useEffect(() => { if (setup?.brand) document.title = setup.brand; }, [setup?.brand]);
 
   const submit = async (e: FormEvent) => {

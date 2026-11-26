@@ -476,6 +476,10 @@ type Settings struct {
 	ACME ACMESettings `json:"acme"`
 	// Brand is what hosting customers see.
 	Brand BrandSettings `json:"brand"`
+	// HostBrands are other brands, each on its own panel address (e.g.
+	// controlpanel.purehost.co.uk next to controlpanel.ratlan.net). Anyone
+	// reaching the panel at a brand's Host sees that brand.
+	HostBrands []BrandSettings `json:"host_brands"`
 	// NoUptime turns off uptime checks for every site.
 	NoUptime bool `json:"no_uptime"`
 	// NoVulnScan turns off the daily WordPress vulnerability check.
@@ -510,11 +514,24 @@ type BrandSettings struct {
 	// directory's brand folder ("" = Berth's own). The panel sets them.
 	Logo    string `json:"logo"`
 	Favicon string `json:"favicon"`
+	// Accent (buttons, links) and Sidebar colours as #rrggbb ("" = Berth's).
+	Accent  string `json:"accent,omitempty"`
+	Sidebar string `json:"sidebar,omitempty"`
+	// Host is the panel address this brand answers on (host brands only).
+	Host string `json:"host,omitempty"`
 }
+
+var hexColour = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 func (b *BrandSettings) normalize() error {
 	b.Name, b.SupportEmail, b.SupportURL = strings.TrimSpace(b.Name), strings.TrimSpace(b.SupportEmail), strings.TrimSpace(b.SupportURL)
 	b.IPv4, b.IPv6 = strings.TrimSpace(b.IPv4), strings.TrimSpace(b.IPv6)
+	b.Accent, b.Sidebar = strings.ToLower(strings.TrimSpace(b.Accent)), strings.ToLower(strings.TrimSpace(b.Sidebar))
+	for _, c := range []string{b.Accent, b.Sidebar} {
+		if c != "" && !hexColour.MatchString(c) {
+			return fmt.Errorf("%q is not a colour like #1650e0", c)
+		}
+	}
 	if len(b.Name) > 40 {
 		return errors.New("the brand name can be at most 40 characters")
 	}
@@ -551,6 +568,29 @@ func (st *Settings) Normalize() error {
 	if err := st.Brand.normalize(); err != nil {
 		return err
 	}
+	st.Brand.Host = ""
+	seen := map[string]bool{}
+	var hb []BrandSettings
+	for _, b := range st.HostBrands {
+		b.Host = strings.ToLower(strings.TrimSpace(b.Host))
+		b.Host = strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(b.Host, "https://"), "http://"), "/")
+		if b.Host == "" && strings.TrimSpace(b.Name) == "" {
+			continue
+		}
+		if b.Host == "" || strings.ContainsAny(b.Host, "/: ") || !strings.Contains(b.Host, ".") {
+			return fmt.Errorf("a brand needs its panel address as a hostname, like controlpanel.example.com (got %q)", b.Host)
+		}
+		if seen[b.Host] {
+			return fmt.Errorf("%s is used by two brands", b.Host)
+		}
+		seen[b.Host] = true
+		if err := b.normalize(); err != nil {
+			return fmt.Errorf("%s: %w", b.Host, err)
+		}
+		b.IPv4, b.IPv6 = "", ""
+		hb = append(hb, b)
+	}
+	st.HostBrands = hb
 	var tp []string
 	for _, p := range st.TrustedProxies {
 		p = strings.TrimSpace(p)

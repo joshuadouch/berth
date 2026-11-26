@@ -314,3 +314,75 @@ func bearerDoOK(t *testing.T, c *client, token, method, path string, body any) m
 	}
 	return out
 }
+
+func TestHostBrands(t *testing.T) {
+	ts, _ := testServer(t)
+	admin := &client{t: t, ts: ts}
+	admin.do("POST", "/api/setup", map[string]string{"username": "josh", "email": "josh@example.com", "password": "correct horse battery"}, false)
+	base := map[string]any{"backup_dir": "/tmp", "backup_keep": 7, "backup_time": "02:30", "default_php": "8.3"}
+	with := func(extra map[string]any) map[string]any {
+		m := map[string]any{}
+		for k, v := range base {
+			m[k] = v
+		}
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
+	if code, _ := admin.do("PUT", "/api/settings", with(map[string]any{"host_brands": []map[string]any{{"host": "cp.example.com", "name": "Pure", "accent": "nope"}}}), true); code != 400 {
+		t.Errorf("bad colour accepted: %d", code)
+	}
+	if code, out := admin.do("PUT", "/api/settings", with(map[string]any{"brand": map[string]any{"name": "House", "support_email": "help@house.test"},
+		"host_brands": []map[string]any{{"host": "https://CP.example.com/", "name": "Pure", "accent": "#1650E0", "sidebar": "#0a1a3f"}}}), true); code != 200 {
+		t.Fatalf("settings: %d %v", code, out)
+	}
+	getAs := func(host, path string) (int, []byte, http.Header) {
+		req, _ := http.NewRequest("GET", ts.URL+path, nil)
+		req.Host = host
+		resp, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, b, resp.Header
+	}
+	_, b, _ := getAs("cp.example.com:443", "/api/setup")
+	if !bytes.Contains(b, []byte(`"brand":"Pure"`)) || !bytes.Contains(b, []byte(`"accent":"#1650e0"`)) {
+		t.Fatalf("host brand setup: %s", b)
+	}
+	_, b, _ = getAs("other.example.com", "/api/setup")
+	if !bytes.Contains(b, []byte(`"brand":"House"`)) {
+		t.Fatalf("main brand setup: %s", b)
+	}
+	put := func(q string, body []byte) int {
+		req, _ := http.NewRequest("PUT", ts.URL+"/api/settings/brand/logo"+q, bytes.NewReader(body))
+		req.Header.Set("X-Berth", "1")
+		req.AddCookie(admin.cookie)
+		resp, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><title>pure</title></svg>`)
+	if code := put("?host=nope.example.com", svg); code != 400 {
+		t.Errorf("logo for an unknown brand: %d", code)
+	}
+	if code := put("?host=cp.example.com", svg); code != 200 {
+		t.Fatalf("host logo: %d", code)
+	}
+	if code, b, _ := getAs("cp.example.com", "/api/brand/logo"); code != 200 || !bytes.Contains(b, []byte("pure")) {
+		t.Fatalf("host logo served: %d", code)
+	}
+	if code, _, _ := getAs("other.example.com", "/api/brand/logo"); code != 404 {
+		t.Errorf("main brand has no logo but got %d", code)
+	}
+	// Saving settings keeps the host brand's logo.
+	admin.do("PUT", "/api/settings", with(map[string]any{"host_brands": []map[string]any{{"host": "cp.example.com", "name": "Pure", "logo": "x"}}}), true)
+	if code, _, _ := getAs("cp.example.com", "/api/brand/logo"); code != 200 {
+		t.Errorf("saving settings dropped the host logo: %d", code)
+	}
+}

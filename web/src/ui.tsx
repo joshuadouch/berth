@@ -73,6 +73,43 @@ export function useFavicon(favicon?: string) {
   }, [favicon]);
 }
 
+// mix blends two #rrggbb colours: t=0 gives a, t=1 gives b.
+function mix(a: string, b: string, t: number) {
+  const p = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const [x, y] = [p(a), p(b)];
+  return '#' + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, '0')).join('');
+}
+
+const themeVars = ['--accent', '--accent2', '--accent-ink', '--accent-soft', '--accent-light', '--hero', '--side', '--side2', '--bg', '--panel2', '--hover', '--line', '--line2'];
+
+// useBrandTheme recolours the panel for a brand with its own accent and
+// sidebar colours (a brand on another panel address, e.g. PureHost).
+export function useBrandTheme(accent?: string, sidebar?: string) {
+  useEffect(() => {
+    const st = document.documentElement.style;
+    themeVars.forEach((v) => st.removeProperty(v));
+    const ok = (c?: string): c is string => !!c && /^#[0-9a-f]{6}$/i.test(c);
+    if (ok(accent)) {
+      st.setProperty('--accent', accent);
+      st.setProperty('--accent2', mix(accent, '#000000', 0.18));
+      st.setProperty('--accent-ink', mix(accent, '#000000', 0.18));
+      st.setProperty('--accent-soft', mix(accent, '#ffffff', 0.88));
+      st.setProperty('--accent-light', mix(accent, '#ffffff', 0.35));
+      // Neutrals tinted by the accent, so a cool brand doesn't sit on warm paper.
+      st.setProperty('--bg', mix(accent, '#ffffff', 0.965));
+      st.setProperty('--panel2', mix(accent, '#ffffff', 0.98));
+      st.setProperty('--hover', mix(accent, '#ffffff', 0.93));
+      st.setProperty('--line', mix(accent, '#ffffff', 0.88));
+      st.setProperty('--line2', mix(accent, '#ffffff', 0.8));
+      st.setProperty('--hero', `linear-gradient(118deg,${mix(accent, '#000000', 0.25)} 0%,${accent} 55%,${mix(accent, '#ffffff', 0.3)} 100%)`);
+    }
+    if (ok(sidebar)) {
+      st.setProperty('--side', sidebar);
+      st.setProperty('--side2', mix(sidebar, '#ffffff', 0.08));
+    }
+  }, [accent, sidebar]);
+}
+
 // Logo is the Ratlan "Blocks" mark: four rounded tiles, one left open.
 export function Logo() {
   return (
