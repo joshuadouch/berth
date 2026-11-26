@@ -262,7 +262,9 @@ small.help{display:block;color:var(--dim);font-size:11.5px;margin-top:6px}
   .modal-bg{place-items:end center}
   .modal{width:100%;max-height:92dvh;border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom)}
   .toast{left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));max-width:none}
-  .login{width:auto;margin:auto 16px}
+  /* #root is a plain block on phones, so centre the sign-in card in the visible screen height */
+  .login{width:auto;margin:0 16px;min-height:100dvh;display:flex;flex-direction:column;justify-content:center;
+    padding:calc(24px + env(safe-area-inset-top)) 0 calc(24px + env(safe-area-inset-bottom));box-sizing:border-box}
   .diff{max-height:none}
   td,th{padding-left:14px;padding-right:14px}
 }
